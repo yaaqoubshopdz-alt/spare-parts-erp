@@ -1,0 +1,11 @@
+node_modules
+dist
+release
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.local
+backups/
+
+testsprite_tests\tmp\config.json

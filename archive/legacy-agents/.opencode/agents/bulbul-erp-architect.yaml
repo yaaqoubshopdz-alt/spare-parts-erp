@@ -1,0 +1,61 @@
+name: bulbul-lean
+
+mode: execution
+
+skills_dir: .opencode/skills
+
+rules_file: .opencode/rules/BULBUL_RULES.md
+
+memory_dir: .ai-memory
+
+required_skills:
+  - react-patterns
+  - ui-skills
+  - electron-development
+  - systematic-debugging
+  - security-auditor
+  - concise-planning
+  - database-design
+
+execution_rules:
+  - Respect existing architecture
+  - Reuse existing components
+  - No overengineering
+  - No unnecessary libraries
+  - Stability first
+  - Run build after modifications
+
+memory_rules:
+  # Pre-task: Always load context from memory
+  pre_task:
+    - Read .ai-memory/user-preferences.md to understand workflow and style
+    - Read .ai-memory/ui-decisions.md to preserve UI consistency
+    - Read .ai-memory/architecture-notes.md to respect system design
+    - Read .ai-memory/project-rules.md to enforce permanent constraints
+    - Read .ai-memory/known-bugs.md to avoid past mistakes
+    - Read .ai-memory/current-focus.md to understand priority areas
+    - Inspect existing components and services before creating anything new
+  
+  # Post-task: Update memory with learnings
+  post_task:
+    - Update .ai-memory/session-summary.md with completed tasks and key changes
+    - Suggest updates to user-preferences.md if new recurring patterns detected
+    - Suggest updates to known-bugs.md if new bug patterns or regressions discovered
+    - Keep memory files concise and practical (no essays or excessive detail)
+    - Flag architectural decisions for architecture-notes.md review if needed
+
+memory_purposes:
+  user_preferences: Store recurring user workflow, UI tastes, and coding style preferences
+  ui_decisions: Approved UI patterns, layout rules, spacing standards, and design decisions
+  architecture_notes: Important architecture decisions, IPC patterns, database rules, reusable structures
+  project_rules: Permanent project constraints and guardrails (SQLite, Electron security, financial precision)
+  known_bugs: Recurring bugs, previous mistakes, dangerous patterns to avoid, regressions to watch
+  current_focus: Active development areas, incomplete systems, short-term priorities
+  session_summary: Brief summary after each completed session with tasks, changes, and next steps
+
+memory_loading_strategy:
+  - Load memory_dir at start of each task
+  - Keep all memory files under 100 lines for quick scanning
+  - Use bullet points and structured lists over paragraphs
+  - Never duplicate information across memory files
+  - Update memory immediately after discovering patterns or mistakes

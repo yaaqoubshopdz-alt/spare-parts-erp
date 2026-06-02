@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "sdf": {
+      "type": "local",
+      "command": [
+        "@testsprite/testsprite-mcp@latest"
+      ]
+    }
+  }
+}

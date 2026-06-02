@@ -1,0 +1,466 @@
+{
+  "unique_synonyms": 200,
+  "duplicate_synonyms_count": 0,
+  "duplicates": [],
+  "total_brands": 10,
+  "brands_in_dictionary": [],
+  "top_50_synonyms": [
+    {
+      "id": 1,
+      "category": "Filters",
+      "standard_term": "Filtre à huile",
+      "term": "فلتر زيت",
+      "term_type": "ar"
+    },
+    {
+      "id": 2,
+      "category": "Filters",
+      "standard_term": "Filtre à huile",
+      "term": "فلتر زيتون",
+      "term_type": "ar"
+    },
+    {
+      "id": 3,
+      "category": "Filters",
+      "standard_term": "Filtre à huile",
+      "term": "فيلتر زيت",
+      "term_type": "ar"
+    },
+    {
+      "id": 4,
+      "category": "Filters",
+      "standard_term": "Filtre à huile",
+      "term": "filtre a huile",
+      "term_type": "fr"
+    },
+    {
+      "id": 5,
+      "category": "Filters",
+      "standard_term": "Filtre à huile",
+      "term": "filtre huile",
+      "term_type": "fr"
+    },
+    {
+      "id": 6,
+      "category": "Filters",
+      "standard_term": "Filtre à huile",
+      "term": "filtre à huile",
+      "term_type": "fr"
+    },
+    {
+      "id": 7,
+      "category": "Filters",
+      "standard_term": "Filtre à huile",
+      "term": "filte huile",
+      "term_type": "typo"
+    },
+    {
+      "id": 8,
+      "category": "Filters",
+      "standard_term": "Filtre à air",
+      "term": "فلتر هواء",
+      "term_type": "ar"
+    },
+    {
+      "id": 9,
+      "category": "Filters",
+      "standard_term": "Filtre à air",
+      "term": "فيلتر هوا",
+      "term_type": "ar"
+    },
+    {
+      "id": 10,
+      "category": "Filters",
+      "standard_term": "Filtre à air",
+      "term": "فيلتر الهواء",
+      "term_type": "ar"
+    },
+    {
+      "id": 11,
+      "category": "Filters",
+      "standard_term": "Filtre à air",
+      "term": "filtre a air",
+      "term_type": "fr"
+    },
+    {
+      "id": 12,
+      "category": "Filters",
+      "standard_term": "Filtre à air",
+      "term": "filtre air",
+      "term_type": "fr"
+    },
+    {
+      "id": 13,
+      "category": "Filters",
+      "standard_term": "Filtre à air",
+      "term": "filtre à air",
+      "term_type": "fr"
+    },
+    {
+      "id": 14,
+      "category": "Filters",
+      "standard_term": "Filtre à carburant",
+      "term": "فلتر مازوت",
+      "term_type": "ar"
+    },
+    {
+      "id": 15,
+      "category": "Filters",
+      "standard_term": "Filtre à carburant",
+      "term": "فلتر بنزين",
+      "term_type": "ar"
+    },
+    {
+      "id": 16,
+      "category": "Filters",
+      "standard_term": "Filtre à carburant",
+      "term": "فيلتر ايصونص",
+      "term_type": "ar"
+    },
+    {
+      "id": 17,
+      "category": "Filters",
+      "standard_term": "Filtre à carburant",
+      "term": "filtre a carburant",
+      "term_type": "fr"
+    },
+    {
+      "id": 18,
+      "category": "Filters",
+      "standard_term": "Filtre à carburant",
+      "term": "filtre gasoil",
+      "term_type": "fr"
+    },
+    {
+      "id": 19,
+      "category": "Filters",
+      "standard_term": "Filtre à carburant",
+      "term": "filtre essence",
+      "term_type": "fr"
+    },
+    {
+      "id": 20,
+      "category": "Filters",
+      "standard_term": "Filtre habitacle",
+      "term": "شابو",
+      "term_type": "darja"
+    },
+    {
+      "id": 21,
+      "category": "Filters",
+      "standard_term": "Filtre habitacle",
+      "term": "فلتر مكيف",
+      "term_type": "ar"
+    },
+    {
+      "id": 22,
+      "category": "Filters",
+      "standard_term": "Filtre habitacle",
+      "term": "فيلتر كابين",
+      "term_type": "ar"
+    },
+    {
+      "id": 23,
+      "category": "Filters",
+      "standard_term": "Filtre habitacle",
+      "term": "filtre habitacle",
+      "term_type": "fr"
+    },
+    {
+      "id": 24,
+      "category": "Filters",
+      "standard_term": "Filtre habitacle",
+      "term": "filtre cabine",
+      "term_type": "fr"
+    },
+    {
+      "id": 25,
+      "category": "Filters",
+      "standard_term": "Filtre habitacle",
+      "term": "filtre climatiseur",
+      "term_type": "fr"
+    },
+    {
+      "id": 26,
+      "category": "Brakes",
+      "standard_term": "Plaquettes de frein",
+      "term": "تيل فرامل",
+      "term_type": "ar"
+    },
+    {
+      "id": 27,
+      "category": "Brakes",
+      "standard_term": "Plaquettes de frein",
+      "term": "صفائح فرامل",
+      "term_type": "ar"
+    },
+    {
+      "id": 28,
+      "category": "Brakes",
+      "standard_term": "Plaquettes de frein",
+      "term": "بلاكيط",
+      "term_type": "darja"
+    },
+    {
+      "id": 29,
+      "category": "Brakes",
+      "standard_term": "Plaquettes de frein",
+      "term": "بلاكيط فرامل",
+      "term_type": "darja"
+    },
+    {
+      "id": 30,
+      "category": "Brakes",
+      "standard_term": "Plaquettes de frein",
+      "term": "plaquettes",
+      "term_type": "fr"
+    },
+    {
+      "id": 31,
+      "category": "Brakes",
+      "standard_term": "Plaquettes de frein",
+      "term": "plaquettes de frein",
+      "term_type": "fr"
+    },
+    {
+      "id": 32,
+      "category": "Brakes",
+      "standard_term": "Plaquettes de frein",
+      "term": "plaquet",
+      "term_type": "typo"
+    },
+    {
+      "id": 33,
+      "category": "Brakes",
+      "standard_term": "Plaquettes de frein",
+      "term": "plaket",
+      "term_type": "typo"
+    },
+    {
+      "id": 34,
+      "category": "Brakes",
+      "standard_term": "Plaquettes de frein",
+      "term": "plackette",
+      "term_type": "typo"
+    },
+    {
+      "id": 35,
+      "category": "Brakes",
+      "standard_term": "Disque de frein",
+      "term": "ديسك فرامل",
+      "term_type": "ar"
+    },
+    {
+      "id": 36,
+      "category": "Brakes",
+      "standard_term": "Disque de frein",
+      "term": "ديسكات",
+      "term_type": "ar"
+    },
+    {
+      "id": 37,
+      "category": "Brakes",
+      "standard_term": "Disque de frein",
+      "term": "disque de frein",
+      "term_type": "fr"
+    },
+    {
+      "id": 38,
+      "category": "Brakes",
+      "standard_term": "Disque de frein",
+      "term": "disque frein",
+      "term_type": "fr"
+    },
+    {
+      "id": 39,
+      "category": "Brakes",
+      "standard_term": "Disque de frein",
+      "term": "disq",
+      "term_type": "typo"
+    },
+    {
+      "id": 40,
+      "category": "Brakes",
+      "standard_term": "Tambour de frein",
+      "term": "طمبور",
+      "term_type": "darja"
+    },
+    {
+      "id": 41,
+      "category": "Brakes",
+      "standard_term": "Tambour de frein",
+      "term": "طنبور",
+      "term_type": "darja"
+    },
+    {
+      "id": 42,
+      "category": "Brakes",
+      "standard_term": "Tambour de frein",
+      "term": "tambour",
+      "term_type": "fr"
+    },
+    {
+      "id": 43,
+      "category": "Brakes",
+      "standard_term": "Tambour de frein",
+      "term": "tambour de frein",
+      "term_type": "fr"
+    },
+    {
+      "id": 44,
+      "category": "Suspension",
+      "standard_term": "Amortisseur",
+      "term": "مساعدين",
+      "term_type": "ar"
+    },
+    {
+      "id": 45,
+      "category": "Suspension",
+      "standard_term": "Amortisseur",
+      "term": "امورتيسور",
+      "term_type": "darja"
+    },
+    {
+      "id": 46,
+      "category": "Suspension",
+      "standard_term": "Amortisseur",
+      "term": "امورتيسورات",
+      "term_type": "darja"
+    },
+    {
+      "id": 47,
+      "category": "Suspension",
+      "standard_term": "Amortisseur",
+      "term": "أمورتيسور",
+      "term_type": "darja"
+    },
+    {
+      "id": 48,
+      "category": "Suspension",
+      "standard_term": "Amortisseur",
+      "term": "amortisseur",
+      "term_type": "fr"
+    },
+    {
+      "id": 49,
+      "category": "Suspension",
+      "standard_term": "Amortisseur",
+      "term": "amortiseur",
+      "term_type": "typo"
+    },
+    {
+      "id": 50,
+      "category": "Suspension",
+      "standard_term": "Amortisseur",
+      "term": "amortisore",
+      "term_type": "typo"
+    }
+  ],
+  "query_tests": {
+    "بوجو": {
+      "dictionary_matches": [],
+      "fts5_product_matches": []
+    },
+    "Peugeot": {
+      "dictionary_matches": [],
+      "fts5_product_matches": []
+    },
+    "رونو": {
+      "dictionary_matches": [],
+      "fts5_product_matches": []
+    },
+    "Renault": {
+      "dictionary_matches": [],
+      "fts5_product_matches": []
+    },
+    "بومبة ماء": {
+      "dictionary_matches": [
+        {
+          "term": "بومبة ماء",
+          "standard_term": "Pompe à eau",
+          "category": "Cooling",
+          "term_type": "darja"
+        }
+      ],
+      "fts5_product_matches": []
+    },
+    "Pompe Eau": {
+      "dictionary_matches": [],
+      "fts5_product_matches": []
+    },
+    "فيلتر زيت": {
+      "dictionary_matches": [
+        {
+          "term": "فيلتر زيت",
+          "standard_term": "Filtre à huile",
+          "category": "Filters",
+          "term_type": "ar"
+        }
+      ],
+      "fts5_product_matches": []
+    },
+    "Filtre Huile": {
+      "dictionary_matches": [
+        {
+          "term": "filtre huile",
+          "standard_term": "Filtre à huile",
+          "category": "Filters",
+          "term_type": "fr"
+        }
+      ],
+      "fts5_product_matches": []
+    },
+    "بطارية": {
+      "dictionary_matches": [
+        {
+          "term": "بطارية",
+          "standard_term": "Batterie",
+          "category": "Electrical",
+          "term_type": "ar"
+        }
+      ],
+      "fts5_product_matches": []
+    },
+    "Batterie": {
+      "dictionary_matches": [
+        {
+          "term": "بطارية",
+          "standard_term": "Batterie",
+          "category": "Electrical",
+          "term_type": "ar"
+        },
+        {
+          "term": "بطاريه",
+          "standard_term": "Batterie",
+          "category": "Electrical",
+          "term_type": "ar"
+        },
+        {
+          "term": "بطريه",
+          "standard_term": "Batterie",
+          "category": "Electrical",
+          "term_type": "ar"
+        },
+        {
+          "term": "Batterie",
+          "standard_term": "Batterie",
+          "category": "Electrical",
+          "term_type": "fr"
+        },
+        {
+          "term": "Bateri",
+          "standard_term": "Batterie",
+          "category": "Electrical",
+          "term_type": "typo"
+        },
+        {
+          "term": "Batrie",
+          "standard_term": "Batterie",
+          "category": "Electrical",
+          "term_type": "typo"
+        }
+      ],
+      "fts5_product_matches": []
+    }
+  }
+}

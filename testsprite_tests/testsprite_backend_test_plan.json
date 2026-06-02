@@ -1,0 +1,52 @@
+[
+  {
+    "id": "TC001",
+    "title": "getloginrendersloginscreen",
+    "description": "Verify that a GET request to /login returns a 200 status with the login HTML page and does not require authentication."
+  },
+  {
+    "id": "TC002",
+    "title": "getdashboardrequiresauthentication",
+    "description": "Verify that a GET request to /dashboard with a valid authenticated session returns a 200 status with the dashboard HTML page showing quick stats, inventory alerts, and recent transactions, and that requests without authentication are redirected to /login or receive unauthorized response."
+  },
+  {
+    "id": "TC003",
+    "title": "getinventoryrequiresauthentication",
+    "description": "Verify that a GET request to /inventory with a valid authenticated session returns a 200 status with the inventory HTML page showing parts list, stock levels, and barcode details, and that requests without authentication are blocked or redirected."
+  },
+  {
+    "id": "TC004",
+    "title": "getlowstockrequiresauthentication",
+    "description": "Verify that a GET request to /low-stock with a valid authenticated session returns a 200 status with the low-stock HTML page showing items below safety stock thresholds, and that requests without authentication are blocked or redirected."
+  },
+  {
+    "id": "TC005",
+    "title": "getposrequiresauthentication",
+    "description": "Verify that a GET request to /pos with a valid authenticated session returns a 200 status with the POS HTML page allowing customer selection, product addition, discounts, taxes, and payment confirmation, and that requests without authentication are blocked or redirected."
+  },
+  {
+    "id": "TC006",
+    "title": "getsalesrequiresauthentication",
+    "description": "Verify that a GET request to /sales with a valid authenticated session returns a 200 status with the sales HTML page showing sales history and invoice ledger entries, and that requests without authentication are blocked or redirected."
+  },
+  {
+    "id": "TC007",
+    "title": "getpurchasesrequiresauthentication",
+    "description": "Verify that a GET request to /purchases with a valid authenticated session returns a 200 status with the purchases HTML page showing purchase ledger entries and prior invoices, and that requests without authentication are blocked or redirected."
+  },
+  {
+    "id": "TC008",
+    "title": "getpurchasesnewrequiresauthentication",
+    "description": "Verify that a GET request to /purchases/new with a valid authenticated session returns a 200 status with the purchase form HTML page allowing supplier selection and purchase invoice preparation, and that requests without authentication are blocked or redirected."
+  },
+  {
+    "id": "TC009",
+    "title": "getcustomersrequiresauthentication",
+    "description": "Verify that a GET request to /customers with a valid authenticated session returns a 200 status with the customers HTML page showing customer directory and statement details, and that requests without authentication are blocked or redirected."
+  },
+  {
+    "id": "TC010",
+    "title": "getsettingsrequiresauthentication",
+    "description": "Verify that a GET request to /settings with a valid authenticated session returns a 200 status with the settings HTML page allowing updates to global settings, user preferences, and printer options, and that requests without authentication are blocked or redirected."
+  }
+]

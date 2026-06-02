@@ -1,0 +1,146 @@
+version: "2"
+type: backend
+tech_stack:
+  - TypeScript
+  - React 18
+  - Vite
+  - SQLite (with better-sqlite3 in Electron)
+features:
+  - name: User Authentication
+    description: Login, PIN verification, and session check using React context and store.
+    files:
+      - src/features/auth/LoginPage.tsx
+      - src/hooks/useAuth.ts
+    endpoints:
+      - method: GET
+        path: /login
+        description: Renders the login screen
+        auth_required: false
+        response_schema:
+          "200": HTML page
+
+  - name: Dashboard & Summary
+    description: Displays quick stats, inventory alerts, and recent transactions.
+    files:
+      - src/features/dashboard/DashboardPage.tsx
+    endpoints:
+      - method: GET
+        path: /dashboard
+        description: Renders the dashboard screen
+        auth_required: true
+        response_schema:
+          "200": HTML page
+
+  - name: Inventory Management
+    description: View and manage parts inventory, low stock items, and barcodes.
+    files:
+      - src/features/inventory/InventoryPage.tsx
+      - src/features/inventory/LowStockPage.tsx
+    endpoints:
+      - method: GET
+        path: /inventory
+        description: Renders the main inventory table
+        auth_required: true
+        response_schema:
+          "200": HTML page
+      - method: GET
+        path: /low-stock
+        description: View items below safety stock thresholds
+        auth_required: true
+        response_schema:
+          "200": HTML page
+
+  - name: POS & Sales
+    description: Point of Sale interface and invoice ledger.
+    files:
+      - src/features/sales/POSPage.tsx
+      - src/features/sales/SalesPage.tsx
+    endpoints:
+      - method: GET
+        path: /pos
+        description: Renders the POS checkout screen
+        auth_required: true
+        response_schema:
+          "200": HTML page
+      - method: GET
+        path: /sales
+        description: Renders sales history table
+        auth_required: true
+        response_schema:
+          "200": HTML page
+
+  - name: Purchase Operations
+    description: Handles buying stock from suppliers.
+    files:
+      - src/features/purchases/PurchasesPage.tsx
+      - src/features/purchases/PurchaseFormPage.tsx
+    endpoints:
+      - method: GET
+        path: /purchases
+        description: Renders purchases ledger
+        auth_required: true
+        response_schema:
+          "200": HTML page
+      - method: GET
+        path: /purchases/new
+        description: Renders the new purchase invoice form
+        auth_required: true
+        response_schema:
+          "200": HTML page
+
+  - name: Customer & Supplier Directory
+    description: Directory of parties with ledger statements.
+    files:
+      - src/features/parties/CustomersPage.tsx
+      - src/features/parties/SuppliersPage.tsx
+    endpoints:
+      - method: GET
+        path: /customers
+        description: Renders customer list and statements
+        auth_required: true
+        response_schema:
+          "200": HTML page
+      - method: GET
+        path: /suppliers
+        description: Renders supplier list and statements
+        auth_required: true
+        response_schema:
+          "200": HTML page
+
+  - name: Expenses & Cashbox
+    description: Record operational expenses and manage cash balance.
+    files:
+      - src/features/expenses/ExpensesPage.tsx
+    endpoints:
+      - method: GET
+        path: /expenses
+        description: Renders expenses tracking interface
+        auth_required: true
+        response_schema:
+          "200": HTML page
+
+  - name: Accounting Reports
+    description: View Balance Sheet and Income Statement.
+    files:
+      - src/features/accounting/AccountingPage.tsx
+    endpoints:
+      - method: GET
+        path: /accounting
+        description: Renders balance sheet and financial statements
+        auth_required: true
+        response_schema:
+          "200": HTML page
+
+  - name: Settings Manager
+    description: Manage global settings, users, printer preferences.
+    files:
+      - src/features/settings/SettingsPage.tsx
+    endpoints:
+      - method: GET
+        path: /settings
+        description: Renders setting panel
+        auth_required: true
+        response_schema:
+          "200": HTML page
+
+known_limitations: []
