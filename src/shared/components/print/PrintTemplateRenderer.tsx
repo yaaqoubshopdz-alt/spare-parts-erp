@@ -525,7 +525,11 @@ export function generateInvoiceHTML(
   const tableBoldWeight = String(Math.max(600, Math.min(900, mappedWeight + 200)));
 
   const cssStyles = `
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap');
     * { box-sizing: border-box; }
+    @page {
+      margin: 0 !important;
+    }
     html, body {
       width: ${paperSize === '80mm' ? '80mm' : paperSize === 'A5' ? '148mm' : '210mm'} !important;
       max-width: ${paperSize === '80mm' ? '80mm' : paperSize === 'A5' ? '148mm' : '210mm'} !important;
@@ -555,7 +559,7 @@ export function generateInvoiceHTML(
     .invoice-container {
       margin: 0 auto;
       background: #ffffff !important;
-      font-family: 'Tahoma', 'Segoe UI', Arial, sans-serif;
+      font-family: 'Cairo', 'Tahoma', 'Segoe UI', Arial, sans-serif;
       direction: rtl;
       color: #1e293b !important;
       line-height: 1.4;
@@ -566,7 +570,7 @@ export function generateInvoiceHTML(
     .invoice-container {
       background-color: #ffffff !important;
       color: #1e293b !important;
-      font-family: 'Tahoma', 'Segoe UI', Arial, sans-serif !important;
+      font-family: 'Cairo', 'Tahoma', 'Segoe UI', Arial, sans-serif !important;
       font-weight: var(--font-weight-base);
     }
 
@@ -577,7 +581,7 @@ export function generateInvoiceHTML(
     .meta-val,
     .legal-box,
     .info-section {
-      font-family: 'Tahoma', 'Segoe UI', sans-serif !important;
+      font-family: 'Cairo', 'Tahoma', 'Segoe UI', sans-serif !important;
     }
 
     /* Custom range slider font weight thickness applies SPECIFICALLY to table body cells (td) as requested */
@@ -665,6 +669,7 @@ export function generateInvoiceHTML(
       flex-direction: column;
       justify-content: space-between;
       page-break-after: always;
+      ${paperSize !== '80mm' ? 'border-top: 5px solid #3b82f6 !important;' : ''}
     }
     .print-page:last-child {
       page-break-after: avoid;
@@ -726,12 +731,14 @@ export function generateInvoiceHTML(
 
     .metadata-card {
       border: 1px solid #cbd5e1 !important;
+      border-top: 3px solid #3b82f6 !important;
       background-color: #ffffff !important;
       border-radius: 0.8em;
-      padding: 0.5em 0.8em;
+      padding: 0 !important;
       width: 100%;
       max-width: 18em;
       display: inline-block;
+      overflow: hidden;
     }
 
     .size-80mm .metadata-card,
@@ -785,11 +792,11 @@ export function generateInvoiceHTML(
     }
 
     .items-table th {
-      background-color: #1e3a8a !important;
-      color: #ffffff !important;
-      border-bottom: 2px solid #172554 !important;
+      background-color: #f8fafc !important;
+      color: #0f172a !important;
+      border-bottom: 4px double #3b82f6 !important;
       border-left: 1px solid #cbd5e1 !important;
-      padding: 0.55em 0.6em;
+      padding: 0.75em 0.65em !important;
       font-size: 0.95em;
     }
     
@@ -798,8 +805,8 @@ export function generateInvoiceHTML(
     }
     
     .items-table th * {
-      background-color: #1e3a8a !important;
-      color: #ffffff !important;
+      background-color: #f1f5f9 !important;
+      color: #0f172a !important;
     }
 
     .items-table td {
@@ -906,11 +913,13 @@ export function generateInvoiceHTML(
       border-bottom: none !important;
     }
 
-    /* Solid Dark Blue bar for final total remaining (SPECIFICITY RESISTANT) */
+    /* Clean high-contrast row for final total remaining (SPECIFICITY RESISTANT) */
     .invoice-container tr.remaining-bar,
     .invoice-container tr.remaining-bar td {
-      background-color: #0f172a !important;
-      color: #ffffff !important;
+      background-color: #f1f5f9 !important;
+      color: #0f172a !important;
+      border-top: 2px solid #0f172a !important;
+      border-bottom: 4px double #0f172a !important;
       border-left: none !important;
     }
 
@@ -1021,6 +1030,10 @@ export function generateInvoiceHTML(
 
   const isQuotation = !!config.showQuotationMode;
   const isTax = templateType === 'tax';
+  let mainTitle = 'وصل بيع';
+  if (isQuotation) mainTitle = 'عرض سعر';
+  else if (isTax) mainTitle = 'فاتورة ضريبية';
+  else if (templateType === 'customer') mainTitle = 'فاتورة عميل';
 
   const da = (val: number) => {
     return `${(val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} د.ج`;
@@ -1114,9 +1127,9 @@ export function generateInvoiceHTML(
       <div style="margin-bottom: 1.2em; border: 1px solid #cbd5e1 !important; border-radius: 0.8em; overflow: hidden; background-color: #ffffff !important;" dir="rtl">
         <table style="width: 100%; border-collapse: collapse; text-align: center; font-size: 11px;">
           <thead>
-            <tr style="background-color: #f8fafc !important; border-bottom: 1px solid #cbd5e1 !important;">
+            <tr style="border-bottom: 1px solid #cbd5e1 !important;">
               ${legalItems.map((item, idx) => `
-                <th style="padding: 0.5em 0.7em; font-weight: bold; ${idx < legalItems.length - 1 ? 'border-left: 1px solid #cbd5e1 !important;' : ''} color: #64748b !important; text-align: center;">
+                <th style="padding: 0.5em 0.7em; font-weight: bold; ${idx < legalItems.length - 1 ? 'border-left: 1px solid #cbd5e1 !important;' : ''} color: #0f172a !important; background-color: #f1f5f9 !important; text-align: center;">
                   ${item.label}
                 </th>
               `).join('')}
@@ -1146,7 +1159,12 @@ export function generateInvoiceHTML(
           <div style="width: 100%;">
             ${settings?.company_name ? `<div class="shop-title" style="text-align: center !important; margin: 0 auto !important;">${settings.company_name}</div>` : ''}
             <div class="shop-subtitle" style="text-align: center !important; margin-top: 0.2em !important; margin-bottom: 0.4em !important; font-weight: var(--font-weight-bold) !important;">${settings?.company_activity && settings?.company_activity !== 'false' ? settings.company_activity : 'قطع غيار السيارات والزيوت والإطارات'}</div>
-            ${settings?.company_phone ? `<div class="meta-item" style="font-size: 0.95em; margin-bottom: 0.25em; text-align: center !important; display: flex; align-items: center; justify-content: center; gap: 0.3em;">${svgPhone} الهاتف: <span class="meta-val" style="font-weight: var(--font-weight-bold);">${settings.company_phone}</span></div>` : ''}
+            ${settings?.company_phone ? `
+              <div class="meta-item" style="font-size: 0.95em; margin-bottom: 0.25em; text-align: center !important; display: flex; align-items: center; justify-content: center; gap: 0.4em; direction: rtl;">
+                <strong style="display: flex; align-items: center; gap: 0.2em; flex-shrink: 0;">${svgPhone} الهاتف:</strong>
+                <span class="meta-val" style="font-family: 'JetBrains Mono', monospace !important; direction: ltr; unicode-bidi: embed; font-weight: var(--font-weight-bold);">${settings.company_phone}</span>
+              </div>
+            ` : ''}
             ${settings?.company_address ? `<div class="meta-item" style="font-size: 0.95em; color: #475569; text-align: center !important; display: flex; align-items: center; justify-content: center; gap: 0.3em;">${svgMapPin} العنوان: ${settings.company_address}</div>` : ''}
           </div>
         </div>
@@ -1163,15 +1181,14 @@ export function generateInvoiceHTML(
               <img class="header-logo" src="${settings.store_logo}" alt="Logo" style="width: 100%; height: 100%; object-fit: cover; border: 2px solid #cbd5e1 !important; border-radius: ${logoShapeRadius};" />
             </div>
           ` : ''}
-          <div class="company-text-content">
+          <div class="company-text-content" style="${logoPosition !== 'right' ? 'border-right: 4px solid #3b82f6; padding-right: 12px;' : ''}">
             ${settings?.company_name ? `<h1 class="shop-title" style="margin: 0; line-height: 1.2;">${settings.company_name}</h1>` : ''}
             <div class="shop-subtitle" style="margin-top: 0.2em; margin-bottom: 0.4em; font-weight: var(--font-weight-bold);">${settings?.company_activity && settings?.company_activity !== 'false' ? settings.company_activity : 'قطع غيار السيارات والزيوت والإطارات'}</div>
             ${settings?.company_phone ? `
-              <p style="margin: 0; font-size: 0.95em; font-weight: var(--font-weight-bold); text-align: right; margin-bottom: 0.25em;">
-                <span style="display: inline-block; vertical-align: middle; font-family: monospace;">${settings.company_phone}</span>
-                <span style="display: inline-block; vertical-align: middle; margin-right: 4px; color: #94a3b8;">${svgPhone}</span>
-                <span style="display: inline-block; vertical-align: middle; margin-right: 4px;">الهاتف:</span>
-              </p>
+              <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0.4em; direction: rtl; margin-bottom: 0.25em;">
+                <strong style="display: flex; align-items: center; gap: 0.2em; flex-shrink: 0; color: #1e293b;">${svgPhone} الهاتف:</strong>
+                <span class="meta-val" style="font-family: 'JetBrains Mono', monospace !important; direction: ltr; unicode-bidi: embed; font-weight: var(--font-weight-bold);">${settings.company_phone}</span>
+              </div>
             ` : ''}
             ${settings?.company_address ? `
               <p style="margin: 0; font-size: 0.95em; color: #475569; text-align: right;">
@@ -1198,9 +1215,11 @@ export function generateInvoiceHTML(
               <strong style="font-size: 0.9em; vertical-align: middle; display: inline-block; flex-shrink: 0;">${svgUser} العميل:</strong>
               <span style="font-weight: var(--font-weight-bold); font-size: 1.1em; margin-right: 0.4em; vertical-align: middle;">${invoice.customer_name}</span>
             </td>
-            <td style="border: none !important; text-align: left; padding: 0.2em 0.5em; vertical-align: middle; width: 45%;">
-              <strong style="font-size: 0.9em; vertical-align: middle; display: inline-block; flex-shrink: 0;">${svgPhone} الهاتف:</strong>
-              <span class="meta-val" style="font-weight: var(--font-weight-bold); font-size: 1.1em; margin-right: 0.4em; vertical-align: middle;">${invoice.customer_phone || '—'}</span>
+            <td style="border: none !important; padding: 0.2em 0.5em; vertical-align: middle; width: 45%;">
+              <div style="display: flex; align-items: center; justify-content: flex-end; gap: 0.4em; direction: rtl;">
+                <strong style="display: flex; align-items: center; gap: 0.2em; flex-shrink: 0; font-size: 0.9em;">${svgPhone} الهاتف:</strong>
+                <span class="meta-val" style="font-family: 'JetBrains Mono', monospace !important; direction: ltr; unicode-bidi: embed; font-weight: var(--font-weight-bold); font-size: 1.1em;">${invoice.customer_phone || '—'}</span>
+              </div>
             </td>
           </tr>
         </table>
@@ -1298,8 +1317,8 @@ export function generateInvoiceHTML(
           ${hasTax ? `<div style="white-space: nowrap;"><strong>الضريبة (${invoice.tax_percent}%):</strong> <span class="meta-val">${da(invoice.tax_amount)}</span></div>` : ''}
           <div style="white-space: nowrap;"><strong style="color: #10b981;">المدفوع:</strong> <span class="meta-val" style="color: #10b981;">${da(invoice.paid)}</span></div>
           <div style="white-space: nowrap;"><strong>المتبقي:</strong> <span class="meta-val">${da(invoice.remaining)}</span></div>
-          <div style="background-color: #0f172a !important; color: #ffffff !important; padding: 0.25em 0.7em; border-radius: 0.35em; white-space: nowrap;">
-            <strong>${isQuotation ? 'الإجمالي التقديري' : 'المجموع الإجمالي'}:</strong> <span class="meta-val" style="font-weight: bold; color: #ffffff !important;">${da(invoice.total)}</span>
+          <div style="background-color: #f1f5f9 !important; color: #0f172a !important; border: 1px solid #cbd5e1 !important; padding: 0.25em 0.7em; border-radius: 0.35em; white-space: nowrap;">
+            <strong>${isQuotation ? 'الإجمالي التقديري' : 'المجموع الإجمالي'}:</strong> <span class="meta-val" style="font-weight: bold; color: #0f172a !important;">${da(invoice.total)}</span>
           </div>
         </div>
       </div>
@@ -1335,13 +1354,13 @@ export function generateInvoiceHTML(
 
   // Multi-row metadata table inside metadata card (No top mainTitle header)
   const metadataCardHTML = `
-    <div class="metadata-card" style="margin: 0 auto; max-width: 100%; width: 100%; box-sizing: border-box;">
+    <div class="metadata-card" style="margin: 0 auto; max-width: 100%; width: 100%; box-sizing: border-box; padding: 0 !important; overflow: hidden; border-top: 3px solid #3b82f6 !important;">
       <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
         <tr class="meta-row" style="border-bottom: 1px solid #e2e8f0 !important;">
-          <td style="padding: 0.45em 0.6em; text-align: left; vertical-align: middle; white-space: nowrap;">
+          <td style="padding: 0.55em 0.7em; text-align: left; vertical-align: middle; white-space: nowrap;">
             <span class="meta-val" style="font-size: 1.05em; font-weight: var(--font-weight-bold); color: #1e3a8a; font-family: monospace; white-space: nowrap;">${invoice.invoice_number}</span>
           </td>
-          <td style="padding: 0.45em 0.6em; text-align: right; vertical-align: middle; white-space: nowrap; color: #64748b; font-size: 0.9em; font-weight: var(--font-weight-bold);">
+          <td style="padding: 0.55em 0.7em; text-align: right; vertical-align: middle; white-space: nowrap; color: #64748b; font-size: 0.9em; font-weight: var(--font-weight-bold);">
             <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; direction: rtl;">
               <span>رقم الفاتورة</span>
               ${svgFileText}
@@ -1349,10 +1368,10 @@ export function generateInvoiceHTML(
           </td>
         </tr>
         <tr class="meta-row" style="border-bottom: 1px solid #e2e8f0 !important;">
-          <td style="padding: 0.45em 0.6em; text-align: left; vertical-align: middle; white-space: nowrap;">
+          <td style="padding: 0.55em 0.7em; text-align: left; vertical-align: middle; white-space: nowrap;">
             <span class="meta-val" style="font-size: 0.95em; font-weight: var(--font-weight-bold); white-space: nowrap;">${invoice.date}</span>
           </td>
-          <td style="padding: 0.45em 0.6em; text-align: right; vertical-align: middle; white-space: nowrap; color: #64748b; font-size: 0.9em; font-weight: var(--font-weight-bold);">
+          <td style="padding: 0.55em 0.7em; text-align: right; vertical-align: middle; white-space: nowrap; color: #64748b; font-size: 0.9em; font-weight: var(--font-weight-bold);">
             <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; direction: rtl;">
               <span>التاريخ</span>
               ${svgCalendar}
@@ -1361,10 +1380,10 @@ export function generateInvoiceHTML(
         </tr>
         ${invoice.time ? `
         <tr class="meta-row" style="border-bottom: 1px solid #e2e8f0 !important;">
-          <td style="padding: 0.45em 0.6em; text-align: left; vertical-align: middle; white-space: nowrap;">
+          <td style="padding: 0.55em 0.7em; text-align: left; vertical-align: middle; white-space: nowrap;">
             <span class="meta-val" style="font-size: 0.95em; font-weight: var(--font-weight-bold); white-space: nowrap;">${invoice.time}</span>
           </td>
-          <td style="padding: 0.45em 0.6em; text-align: right; vertical-align: middle; white-space: nowrap; color: #64748b; font-size: 0.9em; font-weight: var(--font-weight-bold);">
+          <td style="padding: 0.55em 0.7em; text-align: right; vertical-align: middle; white-space: nowrap; color: #64748b; font-size: 0.9em; font-weight: var(--font-weight-bold);">
             <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; direction: rtl;">
               <span>الوقت</span>
               ${svgClock}
@@ -1373,10 +1392,10 @@ export function generateInvoiceHTML(
         </tr>
         ` : ''}
         <tr class="meta-row" style="border-bottom: none !important;">
-          <td style="padding: 0.45em 0.6em; text-align: left; vertical-align: middle; white-space: nowrap;">
+          <td style="padding: 0.55em 0.7em; text-align: left; vertical-align: middle; white-space: nowrap;">
             <span class="meta-val" style="font-size: 0.95em; font-weight: var(--font-weight-bold); white-space: nowrap;">نقدي</span>
           </td>
-          <td style="padding: 0.45em 0.6em; text-align: right; vertical-align: middle; white-space: nowrap; color: #64748b; font-size: 0.9em; font-weight: var(--font-weight-bold);">
+          <td style="padding: 0.55em 0.7em; text-align: right; vertical-align: middle; white-space: nowrap; color: #64748b; font-size: 0.9em; font-weight: var(--font-weight-bold);">
             <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; direction: rtl;">
               <span>طريقة الدفع</span>
               ${svgCreditCard}
@@ -1399,7 +1418,12 @@ export function generateInvoiceHTML(
           <div style="text-align: center; margin-bottom: 0.8em;">
             ${settings?.company_name ? `<div class="shop-title" style="font-size: 1.4em !important;">${settings.company_name}</div>` : ''}
             <div class="shop-subtitle" style="font-size: 0.85em !important; margin-bottom: 0.3em; color: #3b82f6 !important;">${settings?.company_activity && settings?.company_activity !== 'false' ? settings.company_activity : 'قطع غيار السيارات والزيوت والإطارات'}</div>
-            ${settings?.company_phone ? `<div style="font-size: 0.85em; margin-bottom: 0.15em;">الهاتف: <span class="meta-val">${settings.company_phone}</span></div>` : ''}
+            ${settings?.company_phone ? `
+              <div style="font-size: 0.85em; margin-bottom: 0.15em; display: flex; align-items: center; justify-content: center; gap: 0.3em; direction: rtl;">
+                <strong>الهاتف:</strong>
+                <span class="meta-val" style="font-family: 'JetBrains Mono', monospace !important; direction: ltr; unicode-bidi: embed;">${settings.company_phone}</span>
+              </div>
+            ` : ''}
             ${settings?.company_address ? `<div style="font-size: 0.8em; color: #64748b;">العنوان: ${settings.company_address}</div>` : ''}
           </div>
         ` : ''}
@@ -1417,10 +1441,10 @@ export function generateInvoiceHTML(
         ${logoHTMLAbsolute}
         <table class="header-table" style="width: 100%; border-collapse: collapse; margin-bottom: 0;">
           <tr>
-            <td style="vertical-align: top; width: ${paperSize === 'A5' ? '55%' : '60%'}; border: none !important; padding: 0;">
+            <td style="vertical-align: bottom; width: ${paperSize === 'A5' ? '55%' : '60%'}; border: none !important; padding: 0;">
               ${companyDetailsHTML}
             </td>
-            <td style="vertical-align: top; width: ${paperSize === 'A5' ? '45%' : '40%'}; border: none !important; padding: 0; padding-right: 1.0em;">
+            <td style="vertical-align: bottom; width: ${paperSize === 'A5' ? '45%' : '40%'}; border: none !important; padding: 0; padding-right: 1.0em;">
               ${metadataCardHTML}
             </td>
           </tr>
@@ -1704,6 +1728,9 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
     <div className="flex flex-col gap-6 w-full items-center print-preview-container select-none">
       <style>{`
         @media print {
+          @page {
+            margin: 0 !important;
+          }
           .print-preview-sheet .items-table tr {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
@@ -1721,13 +1748,19 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
         }
 
         .print-preview-sheet {
+          @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap');
           background-color: #ffffff !important;
           color: #1e293b !important;
           border-color: #cbd5e1 !important;
-          font-family: 'Tahoma', 'Segoe UI', sans-serif !important;
+          font-family: 'Cairo', 'Tahoma', 'Segoe UI', sans-serif !important;
           --font-weight-base: 500;
           --font-weight-bold: 800;
           line-height: 1.4 !important;
+        }
+        
+        .print-preview-sheet.size-A4,
+        .print-preview-sheet.size-A5 {
+          border-top: 5px solid #3b82f6 !important;
         }
 
         .print-page-content-top {
@@ -1790,11 +1823,13 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
 
         .print-preview-sheet .metadata-card {
           border: 1px solid #cbd5e1 !important;
+          border-top: 3px solid #3b82f6 !important;
           border-radius: 0.8em !important;
-          padding: 0.5em 0.8em !important;
+          padding: 0 !important;
           width: 100% !important;
           max-width: 18em !important;
           display: inline-block !important;
+          overflow: hidden !important;
         }
 
         .size-80mm .metadata-card,
@@ -1824,7 +1859,7 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
         .print-preview-sheet .meta-val,
         .print-preview-sheet .legal-box,
         .print-preview-sheet .info-section {
-          font-family: 'Tahoma', 'Segoe UI', sans-serif !important;
+          font-family: 'Cairo', 'Tahoma', 'Segoe UI', sans-serif !important;
         }
 
         /* Custom range slider font weight thickness applies SPECIFICALLY to table body cells (td) as requested */
@@ -1851,11 +1886,11 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
         }
         
         .print-preview-sheet table.items-table th {
-          background-color: #1e3a8a !important;
-          color: #ffffff !important;
-          border-bottom: 2px solid #172554 !important;
+          background-color: #f8fafc !important;
+          color: #0f172a !important;
+          border-bottom: 4px double #3b82f6 !important;
           border-left: 1px solid #cbd5e1 !important;
-          padding: 0.55em 0.6em !important;
+          padding: 0.75em 0.65em !important;
           font-size: 0.9em !important;
         }
         
@@ -1938,11 +1973,13 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
           border-bottom: none !important;
         }
 
-        /* Solid Dark Blue bar for final total remaining (SPECIFICITY RESISTANT) */
+        /* Clean high-contrast row for final total remaining (SPECIFICITY RESISTANT) */
         .print-preview-sheet tr.remaining-bar,
         .print-preview-sheet tr.remaining-bar td {
-          background-color: #0f172a !important;
-          color: #ffffff !important;
+          background-color: #f1f5f9 !important;
+          color: #0f172a !important;
+          border-top: 2px solid #0f172a !important;
+          border-bottom: 4px double #0f172a !important;
           border-left: none !important;
         }
 
@@ -2030,9 +2067,14 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
           color: #1e293b !important;
         }
 
+        .print-preview-sheet .legal-grid th {
+          background-color: #f1f5f9 !important;
+          color: #0f172a !important;
+        }
+
         .dark .print-preview-sheet .legal-grid th {
-          background-color: #f8fafc !important;
-          color: #64748b !important;
+          background-color: #f1f5f9 !important;
+          color: #0f172a !important;
         }
 
         .dark .print-preview-sheet table.items-table,
@@ -2042,8 +2084,9 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
 
         .dark .print-preview-sheet table.items-table th,
         .dark .print-preview-sheet table.items-table th * {
-          background-color: #1e3a8a !important;
-          color: #ffffff !important;
+          background-color: #f8fafc !important;
+          color: #0f172a !important;
+          border-bottom: 3px solid #3b82f6 !important;
         }
 
         .dark .print-preview-sheet table.items-table tr td,
@@ -2074,8 +2117,10 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
 
         .dark .print-preview-sheet table.totals-table tr.remaining-bar,
         .dark .print-preview-sheet table.totals-table tr.remaining-bar td {
-          background-color: #0f172a !important;
-          color: #ffffff !important;
+          background-color: #f1f5f9 !important;
+          color: #0f172a !important;
+          border-top: 2px solid #0f172a !important;
+          border-bottom: 4px double #0f172a !important;
         }
         
         .dark .print-preview-sheet .text-red-500 {
@@ -2247,10 +2292,13 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
                         )}
                         <p className="shop-subtitle text-xs text-blue-500 font-bold m-0">{settings?.company_activity && settings?.company_activity !== 'false' ? settings.company_activity : 'قطع غيار السيارات والزيوت والإطارات'}</p>
                         {settings?.company_phone && (
-                          <p className="text-xs text-gray-600 m-0 flex items-center justify-center gap-1 font-bold">
-                            <span>الهاتف: <span className="font-mono">{settings.company_phone}</span></span>
-                            <Phone size={12} className="text-gray-400" />
-                          </p>
+                          <div className="text-xs text-gray-600 m-0 flex items-center justify-center gap-1.5 font-bold" style={{ direction: 'rtl' }}>
+                            <span className="flex items-center gap-1 shrink-0">
+                              <Phone size={12} className="text-gray-400" />
+                              <span>الهاتف:</span>
+                            </span>
+                            <span className="font-mono" style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{settings.company_phone}</span>
+                          </div>
                         )}
                         {settings?.company_address && (
                           <p className="text-xs text-gray-500 m-0 flex items-center justify-center gap-1">
@@ -2298,7 +2346,7 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
                 ) : (
                   <div className="relative mb-5 w-full">
                     
-                    <div className="flex justify-between items-start gap-4 pb-4 border-b-2 border-dashed border-gray-300 w-full">
+                    <div className="flex justify-between items-end gap-4 pb-4 border-b-2 border-dashed border-gray-300 w-full">
                       {config.showCompanyBlock && (
                         <div className={`${config.showInvoiceDetails ? (paperSize === 'A5' ? 'w-[55%]' : 'w-[60%]') : 'w-full'} block text-right`} style={{ minHeight: logoSizePx }}>
                           {settings?.store_logo && (
@@ -2311,19 +2359,33 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
                             </div>
                           )}
                           
-                          <div className="company-text-content" style={{ textAlign: logoPosition === 'center' ? 'center' : 'right' }}>
+                          <div 
+                            className="company-text-content" 
+                            style={{ 
+                              textAlign: logoPosition === 'center' ? 'center' : 'right',
+                              borderRight: (logoPosition === 'center' || logoPosition === 'right') ? 'none' : '4px solid #3b82f6',
+                              paddingRight: (logoPosition === 'center' || logoPosition === 'right') ? 0 : '12px'
+                            }}
+                          >
                             {settings?.company_name && (
                               <h1 className="shop-title" style={{ textAlign: logoPosition === 'center' ? 'center' : 'right' }}>{settings.company_name}</h1>
                             )}
                             <p className="shop-subtitle" style={{ textAlign: logoPosition === 'center' ? 'center' : 'right' }}>{settings?.company_activity && settings?.company_activity !== 'false' ? settings.company_activity : 'قطع غيار السيارات والزيوت والإطارات'}</p>
                             {settings?.company_phone && (
-                              <p className="text-xs text-gray-600 m-0 font-bold" style={{ textAlign: logoPosition === 'center' ? 'center' : 'right', marginBottom: '0.25em' }}>
-                                <span className="inline-block align-middle font-mono">{settings.company_phone}</span>
-                                <span className="inline-block align-middle mr-1 text-gray-400">
-                                  <Phone size={12} className="font-bold" />
+                              <div 
+                                className="text-xs text-gray-600 m-0 font-bold flex items-center gap-1.5" 
+                                style={{ 
+                                  justifyContent: logoPosition === 'center' ? 'center' : 'flex-start', 
+                                  direction: 'rtl',
+                                  marginBottom: '0.25em' 
+                                }}
+                              >
+                                <span className="flex items-center gap-1 shrink-0">
+                                  <Phone size={12} className="text-gray-400" />
+                                  <span>الهاتف:</span>
                                 </span>
-                                <span className="inline-block align-middle mr-1">الهاتف:</span>
-                              </p>
+                                <span className="font-mono" style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{settings.company_phone}</span>
+                              </div>
                             )}
                             {settings?.company_address && (
                               <p className="text-xs text-gray-500 m-0" style={{ textAlign: logoPosition === 'center' ? 'center' : 'right' }}>
@@ -2339,35 +2401,35 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
                       )}
                       {config.showInvoiceDetails && (
                         <div className={`text-left ${paperSize === 'A5' ? 'w-[45%]' : 'w-[40%]'} flex justify-end`}>
-                          <div className="metadata-card" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+                          <div className="metadata-card" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box', padding: 0, overflow: 'hidden', borderTop: '3px solid #3b82f6' }}>
                             <table className="w-full border-collapse">
                               <tbody>
                                 <tr className="meta-row">
-                                  <td className="meta-val py-1 text-left font-black text-blue-900 text-sm whitespace-nowrap">{invoice.invoice_number}</td>
-                                  <td className="py-1 text-right text-gray-500 text-[10px] md:text-xs flex items-center justify-end gap-1.5 whitespace-nowrap font-bold">
+                                  <td className="meta-val py-1.5 px-2.5 text-left font-black text-blue-900 text-sm whitespace-nowrap">{invoice.invoice_number}</td>
+                                  <td className="py-1.5 px-2.5 text-right text-gray-500 text-[10px] md:text-xs flex items-center justify-end gap-1.5 whitespace-nowrap font-bold font-sans">
                                     <span>رقم الفاتورة</span>
                                     <FileText size={12} className="text-gray-400 shrink-0" />
                                   </td>
                                 </tr>
                                 <tr className="meta-row">
-                                  <td className="meta-val py-1 text-left text-sm whitespace-nowrap">{invoice.date}</td>
-                                  <td className="py-1 text-right text-gray-500 text-[10px] md:text-xs flex items-center justify-end gap-1.5 whitespace-nowrap font-bold">
+                                  <td className="meta-val py-1.5 px-2.5 text-left text-sm whitespace-nowrap">{invoice.date}</td>
+                                  <td className="py-1.5 px-2.5 text-right text-gray-500 text-[10px] md:text-xs flex items-center justify-end gap-1.5 whitespace-nowrap font-bold font-sans">
                                     <span>التاريخ</span>
                                     <Calendar size={12} className="text-gray-400 shrink-0" />
                                   </td>
                                 </tr>
                                 {invoice.time && (
                                   <tr className="meta-row">
-                                    <td className="meta-val py-1 text-left text-sm whitespace-nowrap">{invoice.time}</td>
-                                    <td className="py-1 text-right text-gray-500 text-[10px] md:text-xs flex items-center justify-end gap-1.5 whitespace-nowrap font-bold">
+                                    <td className="meta-val py-1.5 px-2.5 text-left text-sm whitespace-nowrap">{invoice.time}</td>
+                                    <td className="py-1.5 px-2.5 text-right text-gray-500 text-[10px] md:text-xs flex items-center justify-end gap-1.5 whitespace-nowrap font-bold font-sans">
                                       <span>الوقت</span>
                                       <Clock size={12} className="text-gray-400 shrink-0" />
                                     </td>
                                   </tr>
                                 )}
                                 <tr className="meta-row">
-                                  <td className="meta-val py-1 text-left text-sm whitespace-nowrap">نقدي</td>
-                                  <td className="py-1 text-right text-gray-500 text-[10px] md:text-xs flex items-center justify-end gap-1.5 whitespace-nowrap font-bold">
+                                  <td className="meta-val py-1.5 px-2.5 text-left text-sm whitespace-nowrap">نقدي</td>
+                                  <td className="py-1.5 px-2.5 text-right text-gray-500 text-[10px] md:text-xs flex items-center justify-end gap-1.5 whitespace-nowrap font-bold font-sans">
                                     <span>طريقة الدفع</span>
                                     <CreditCard size={12} className="text-gray-400 shrink-0" />
                                   </td>
@@ -2395,12 +2457,14 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
                             <span>{invoice.customer_name}</span>
                           </span>
                         </td>
-                        <td className="p-0 border-none text-left vertical-middle w-[45%]">
-                          <span className="flex items-center justify-end gap-1.5 text-sm font-bold text-gray-800">
-                            <Phone size={13} className="text-gray-400" />
-                            <strong style={{ fontSize: '0.9em' }}>الهاتف:</strong>
-                            <span className="font-mono">{invoice.customer_phone || '—'}</span>
-                          </span>
+                        <td className="p-0 border-none vertical-middle w-[45%]">
+                          <div className="flex items-center justify-end gap-1.5 text-sm font-bold text-gray-800" style={{ direction: 'rtl' }}>
+                            <span className="flex items-center gap-1 shrink-0">
+                              <Phone size={13} className="text-gray-400" />
+                              <strong style={{ fontSize: '0.9em' }}>الهاتف:</strong>
+                            </span>
+                            <span className="font-mono" style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{invoice.customer_phone || '—'}</span>
+                          </div>
                         </td>
                       </tr>
                     </tbody>
@@ -2421,9 +2485,13 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
                   <div className="mb-4 overflow-hidden rounded-xl border border-gray-300 bg-white shadow-sm legal-grid" dir="rtl">
                     <table className="w-full border-collapse text-center text-xs">
                       <thead>
-                        <tr className="bg-slate-50 border-b border-gray-300 text-gray-500 font-bold">
+                        <tr className="border-b border-gray-300 text-gray-800 font-bold">
                           {legalItems.map((item, idx) => (
-                            <th key={idx} className="py-2 px-3 border-l border-gray-300 last:border-l-0 text-center font-bold text-[10px] md:text-xs">
+                            <th 
+                              key={idx} 
+                              className="py-2 px-3 border-l border-gray-300 last:border-l-0 text-center font-bold text-[10px] md:text-xs"
+                              style={{ backgroundColor: '#f1f5f9', color: '#0f172a' }}
+                            >
                               {item.label}
                             </th>
                           ))}
@@ -2527,8 +2595,8 @@ export const PrintTemplateRenderer: React.FC<PrintTemplateRendererProps> = ({
                       )}
                       <div className="whitespace-nowrap"><strong className="text-green-600">المدفوع:</strong> <span className="meta-val text-green-600">{da(invoice.paid)}</span></div>
                       <div className="whitespace-nowrap"><strong>المتبقي:</strong> <span className="meta-val">{da(invoice.remaining)}</span></div>
-                      <div className="bg-slate-900 text-white px-2.5 py-1 rounded-[0.35em] whitespace-nowrap">
-                        <strong>{isQuotation ? 'الإجمالي التقديري' : 'المجموع الإجمالي'}:</strong> <span className="meta-val font-bold text-white">{da(invoice.total)}</span>
+                      <div className="bg-slate-100 text-slate-900 border border-gray-300 px-2.5 py-1 rounded-[0.35em] whitespace-nowrap">
+                        <strong>{isQuotation ? 'الإجمالي التقديري' : 'المجموع الإجمالي'}:</strong> <span className="meta-val font-bold text-slate-900">{da(invoice.total)}</span>
                       </div>
                     </div>
                   </div>

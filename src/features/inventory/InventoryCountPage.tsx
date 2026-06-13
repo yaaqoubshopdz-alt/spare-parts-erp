@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { showSuccess, showError, showInfo } from '../../shared/utils/notifications';
 import { useAuth } from '../../hooks/useAuth';
 import { AdminPinModal } from '../../shared/components/ui/AdminPinModal';
+import { useColumnManager, type ERPColumn } from '../../shared/components/table';
 import InventoryCountToolbar from './components/InventoryCountToolbar';
 import InventoryCountTable from './components/InventoryCountTable';
 import InventoryCountPagination from './components/InventoryCountPagination';
@@ -103,6 +104,28 @@ export default function InventoryCountPage({ categoryId, onClose }: Props) {
   const isCounting = activeSession?.status === 'counting';
   const isReviewing = activeSession?.status === 'reviewing';
   const isApproved = activeSession?.status === 'approved';
+
+  const DEFAULT_COLUMNS = useMemo<ERPColumn<CountItem>[]>(() => [
+    { key: 'index', label: '#', width: 44, align: 'center', resizable: false, draggable: false },
+    { key: 'barcode_snapshot', label: 'الباركود', sortable: true, width: 110, resizable: true, draggable: true },
+    { key: 'product_name_snapshot', label: 'الاسم', sortable: true, width: 220, resizable: true, draggable: true },
+    { key: 'category_name_snapshot', label: 'التصنيف', sortable: true, width: 110, resizable: true, draggable: true },
+    { key: 'system_qty_at_start', label: 'الكمية عند البدء', sortable: true, width: 100, align: 'center', resizable: true, draggable: true },
+    { key: 'current_stock', label: 'المخزون الآني', width: 100, align: 'center', resizable: true, draggable: true },
+    { key: 'counted_qty', label: 'العد', sortable: true, width: 90, align: 'center', resizable: true, draggable: true },
+    { key: 'final_difference', label: 'الفرق', sortable: true, width: 90, align: 'center', resizable: true, draggable: true },
+    { key: 'status', label: 'الحالة', width: 100, align: 'center', resizable: true, draggable: true },
+    { key: 'hide', label: 'إخفاء', width: 50, align: 'center', resizable: false, draggable: false },
+  ], []);
+
+  const {
+    columns,
+    allColumns,
+    setWidth,
+    toggleHide,
+    reorder,
+    reset,
+  } = useColumnManager<ERPColumn<CountItem>>('inventory_count_columns_layout_v1', DEFAULT_COLUMNS);
 
   // Fix progress: use matched+mismatch against total_products from session
   const countedItems = (activeSession?.match_count || 0) + (activeSession?.mismatch_count || 0);
@@ -207,6 +230,21 @@ export default function InventoryCountPage({ categoryId, onClose }: Props) {
   useEffect(() => {
     if (activeSession?.id) loadItems(pendingSearchRef.current);
   }, [activeSession?.id, page, limit, itemsStatusFilter, loadItems, searchTrigger]);
+
+  useEffect(() => {
+    if (!window.electronAPI || !activeSession?.id) return;
+
+    const handleMobileCountUpdate = (data: { session_id: number; item_id: number; counted_qty: number | null; status: string }) => {
+      if (data.session_id === activeSession.id) {
+        loadItems(pendingSearchRef.current);
+      }
+    };
+
+    window.electronAPI.on('mobile:inventory-count-updated', handleMobileCountUpdate);
+    return () => {
+      window.electronAPI?.removeAllListeners('mobile:inventory-count-updated');
+    };
+  }, [activeSession?.id, loadItems]);
 
   // ── Search: debounced trigger via searchTrigger counter ──
   const handleSearchChange = useCallback((val: string) => {
@@ -526,7 +564,7 @@ export default function InventoryCountPage({ categoryId, onClose }: Props) {
   }
 
   return (
-    <div className="h-full flex flex-col bg-background_secondary text-text_primary overflow-hidden font-cairo w-full min-w-0 relative">
+    <div className="h-full flex flex-col text-text_primary overflow-hidden font-cairo w-full min-w-0 relative">
       <InventoryCountToolbar
         sessionNumber={activeSession.session_number}
         startedAt={activeSession.started_at}
@@ -553,11 +591,15 @@ export default function InventoryCountPage({ categoryId, onClose }: Props) {
         onApprove={() => setShowPinModal(true)}
         onCancel={handleCancelSession}
         onStartNew={handleStartNewSession}
+        allColumns={allColumns}
+        toggleHide={toggleHide}
+        reorder={reorder}
+        reset={reset}
       />
 
       <InventoryCountTable
         items={displayItems}
-         loading={itemsLoading}
+        loading={itemsLoading}
         page={page}
         limit={limit}
         sortKey={sortKey}
@@ -571,6 +613,9 @@ export default function InventoryCountPage({ categoryId, onClose }: Props) {
         togglingHideProductId={togglingHideProductId}
         onRowClick={handleRowClick}
         focusedIndex={focusedIndex}
+        columns={columns}
+        reorder={reorder}
+        setWidth={setWidth}
       />
 
       <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30">

@@ -1,5 +1,5 @@
 version: "2"
-type: backend
+type: frontend
 tech_stack:
   - TypeScript
   - React 18

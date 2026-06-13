@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldCheck, X, User, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { showSuccess, showError } from '../../utils/notifications';
@@ -84,9 +85,7 @@ export default function AdminAuthGate({
     }
   };
 
-  if (!isOpen) return null;
-
-  return (
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 overflow-hidden select-none">
@@ -189,6 +188,7 @@ export default function AdminAuthGate({
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

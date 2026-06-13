@@ -101,8 +101,6 @@ export default function DashboardPage() {
   const [showNotifications, setShowNotifications] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  // Stale Drafts State (main panel — old drafts only)
-  const [staleDrafts, setStaleDrafts] = useState<any[]>([]);
   // Recent Drafts State (notification dropdown — all drafts)
   const [recentDrafts, setRecentDrafts] = useState<any[]>([]);
 
@@ -128,16 +126,14 @@ export default function DashboardPage() {
   const loadDashboard = async () => {
     setLoading(true);
     try {
-      const [summaryRes, lowStockRes, invoicesRes, draftsRes] = await Promise.all([
+      const [summaryRes, lowStockRes, invoicesRes] = await Promise.all([
         window.electronAPI.invoke('db:dashboard:summary'),
         window.electronAPI.invoke('db:dashboard:lowStock'),
         window.electronAPI.invoke('db:dashboard:todayInvoices'),
-        window.electronAPI.invoke('db:dashboard:staleDrafts'),
       ]);
       if (summaryRes.success) setData(summaryRes.data);
       if (lowStockRes.success) setLowStock(lowStockRes.data);
       if (invoicesRes.success) setTodayInvoices(invoicesRes.data);
-      if (draftsRes.success) setStaleDrafts(draftsRes.data);
     } catch (err) {
       console.error('[Dashboard] Load error:', err);
     } finally {
@@ -469,9 +465,6 @@ export default function DashboardPage() {
 
         </div>
       </div>
-
-
-
 
       {/* Quick Actions (Integrated from Old Dashboard) - Taller Premium Look */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 min-h-[220px] mb-2 shrink-0">

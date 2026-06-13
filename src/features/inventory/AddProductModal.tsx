@@ -14,6 +14,18 @@ interface AddProductModalProps {
   initialPurchasePrice?: number;
   productId?: number | null;
   hideInitialStock?: boolean;
+  initialData?: {
+    name?: string;
+    name_fr?: string;
+    barcode?: string;
+    purchase_price?: number;
+    retail_price?: number;
+    retail_margin?: number;
+    category_id?: number | string;
+    unit_id?: number | string;
+    brand_id?: number | string;
+    fitments?: any[];
+  } | null;
 }
 
 const DIVISIBLE_CODES = ['LTR', 'MTR', 'KG'];
@@ -166,7 +178,7 @@ function CustomSelect({ label, icon, options, value, onChange, placeholder, requ
   );
 }
 
-export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, initialPurchasePrice = 0, productId, hideInitialStock = false }: AddProductModalProps) {
+export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, initialPurchasePrice = 0, productId, hideInitialStock = false, initialData = null }: AddProductModalProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -205,6 +217,28 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
       loadUnits();
       if (productId) {
         loadProduct(productId);
+      } else if (initialData) {
+        setForm({
+          name: initialData.name || '',
+          name_fr: initialData.name_fr || '',
+          barcode: initialData.barcode || '',
+          internal_code: initialData.barcode || '',
+          unit_id: Number(initialData.unit_id) || form.unit_id || 0,
+          initial_stock: 0,
+          purchase_price: initialData.purchase_price !== undefined ? initialData.purchase_price : initialPurchasePrice,
+          retail_price: initialData.retail_price || 0,
+          retail_margin: initialData.retail_margin !== undefined ? initialData.retail_margin : defaultMargin,
+          min_stock_level: 5,
+          category_id: initialData.category_id ? initialData.category_id.toString() : ''
+        });
+        setBulkQty(0);
+        setContainerSellPrice(0);
+        setContainerMargin(defaultMargin);
+        if (initialData.fitments) {
+          setFitments(initialData.fitments);
+        } else {
+          setFitments([]);
+        }
       } else {
         setForm({
           name: '', name_fr: '', barcode: '', internal_code: '',
@@ -213,9 +247,10 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
           retail_margin: defaultMargin, min_stock_level: 5, category_id: ''
         });
         setBulkQty(0); setContainerSellPrice(0); setContainerMargin(defaultMargin);
+        setFitments([]);
       }
     }
-  }, [isOpen, initialPurchasePrice, productId]);
+  }, [isOpen, initialPurchasePrice, productId, initialData]);
 
   const loadProduct = async (id: number) => {
     setInitLoading(true);
@@ -346,7 +381,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
         wholesale_price: isDivisible && containerSellPrice > 0 ? containerSellPrice : form.retail_price,
         retail_price: form.retail_price, min_stock_level: form.min_stock_level,
         pieces_per_box: isDivisible ? bulkQty : 1,
-        initial_stock: form.initial_stock || 0,
+        initial_stock: hideInitialStock ? 0 : (form.initial_stock || 0),
         _user_id: user?.id,
         fitments: fitments.map(f => ({ vehicle_brand_id: f.vehicle_brand_id, vehicle_model_id: f.vehicle_model_id }))
       };
@@ -400,7 +435,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
               <Sparkles size={20} className="text-white" />
             </div>
             <h2 className="text-xl font-bold text-text_primary tracking-tight">
-              {productId ? t('inventory.edit_product') : t('inventory.add_product')}
+              {productId || initialData ? t('inventory.edit_product') : t('inventory.add_product')}
             </h2>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-background_secondary rounded-xl transition-all duration-200 group focus:outline-none focus:ring-2 focus:ring-border_default">
@@ -511,15 +546,17 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
 
                 {/* Row 4: الكمية الحالية + سعة الكيس/العلبة */}
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-                  <div className="md:col-span-6">
-                    <label className="text-sm text-emerald-500 block mb-2 font-bold flex items-center gap-1.5">
-                      <Package size={16} className="text-emerald-500" />
-                      <span>{t('inventory.stock_current')}</span>
-                    </label>
-                    <input type="number" min={0} value={form.initial_stock || ''} onChange={e => setForm({ ...form, initial_stock: parseFloat(e.target.value) || 0 })}
-                      className="w-full bg-background_secondary dark:bg-white/[0.06] border border-border_default dark:border-white/10 rounded-xl px-4 py-3 text-base font-numbers text-emerald-600 dark:text-emerald-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all shadow-inner" />
-                  </div>
-                  <div className="md:col-span-6">
+                  {!hideInitialStock && (
+                    <div className="md:col-span-6">
+                      <label className="text-sm text-emerald-500 block mb-2 font-bold flex items-center gap-1.5">
+                        <Package size={16} className="text-emerald-500" />
+                        <span>{t('inventory.stock_current')}</span>
+                      </label>
+                      <input type="number" min={0} value={form.initial_stock || ''} onChange={e => setForm({ ...form, initial_stock: parseFloat(e.target.value) || 0 })}
+                        className="w-full bg-background_secondary dark:bg-white/[0.06] border border-border_default dark:border-white/10 rounded-xl px-4 py-3 text-base font-numbers text-emerald-600 dark:text-emerald-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all shadow-inner" />
+                    </div>
+                  )}
+                  <div className={hideInitialStock ? "md:col-span-12" : "md:col-span-6"}>
                     <label className="text-sm text-violet-600 dark:text-violet-300 block mb-2 font-bold flex items-center gap-1.5">
                       <span>{labels.icon}</span>
                       <span>{t('inventory.capacity')} {labels.bulk} ({labels.unit})</span>
@@ -579,15 +616,17 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
                 </div>
 
                 {/* Row 4: الكمية + الحد الأدنى */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <div>
-                    <label className="text-sm text-emerald-500 block mb-2 font-bold flex items-center gap-1.5">
-                      <Package size={16} className="text-emerald-500" />
-                      <span>{t('inventory.stock_current')}</span>
-                    </label>
-                    <input type="number" min={0} value={form.initial_stock || ''} onChange={e => setForm({ ...form, initial_stock: parseFloat(e.target.value) || 0 })}
-                      className="w-full bg-background_secondary dark:bg-white/[0.06] border border-border_default dark:border-white/10 rounded-xl px-4 py-3 text-base font-numbers text-emerald-600 dark:text-emerald-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all shadow-inner" />
-                  </div>
+                <div className={hideInitialStock ? "grid grid-cols-1 gap-5" : "grid grid-cols-1 md:grid-cols-2 gap-5"}>
+                  {!hideInitialStock && (
+                    <div>
+                      <label className="text-sm text-emerald-500 block mb-2 font-bold flex items-center gap-1.5">
+                        <Package size={16} className="text-emerald-500" />
+                        <span>{t('inventory.stock_current')}</span>
+                      </label>
+                      <input type="number" min={0} value={form.initial_stock || ''} onChange={e => setForm({ ...form, initial_stock: parseFloat(e.target.value) || 0 })}
+                        className="w-full bg-background_secondary dark:bg-white/[0.06] border border-border_default dark:border-white/10 rounded-xl px-4 py-3 text-base font-numbers text-emerald-600 dark:text-emerald-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all shadow-inner" />
+                    </div>
+                  )}
                   <div>
                     <label className="text-sm text-text_secondary block mb-2 font-bold flex items-center gap-1.5">
                       <Settings2 size={16} className="text-text_muted" />
@@ -761,7 +800,8 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
                       showError('يرجى كتابة اسم القطعة أو كودها أولاً');
                       return;
                     }
-                    const query = encodeURIComponent(`What car models and years are compatible with auto part: ${form.internal_code} ${form.name}?`);
+                    const promptText = `ماهي السيارات المتوافقة مع قطعة الغيار: ${form.internal_code || ''} ${form.name} وما هي أرقام OEM والبدائل المتطابقة معها في السوق الجزائري؟`;
+                    const query = encodeURIComponent(promptText);
                     window.electronAPI.invoke('shell:openExternal', `https://www.google.com/search?q=${query}`);
                   }}
                   className="self-start text-xs bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-300 px-3 py-2 rounded-lg flex items-center gap-1.5 transition-all font-bold border border-blue-500/20"
@@ -774,7 +814,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
               {/* Scrollable Modal Content */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                 <label className="text-sm font-bold text-text_secondary block">{t('inventory.vehicle_fitments')}</label>
-                <CreatableFitmentTags value={fitments} onChange={setFitments} />
+                <CreatableFitmentTags value={fitments} onChange={setFitments} productName={form.name} />
               </div>
 
               {/* Footer */}

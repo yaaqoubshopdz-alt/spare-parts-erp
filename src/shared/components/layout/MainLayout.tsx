@@ -58,7 +58,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
   return (
     <div
-      className="flex h-screen w-screen overflow-hidden bg-background_primary"
+      className="flex h-screen w-screen overflow-hidden app-bg"
       dir={direction}
     >
       {/* Mobile Backdrop Overlay */}
@@ -89,7 +89,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
         <TopBar />
 
         {/* Page Content — animated on route change */}
-        <main className="flex-1 overflow-hidden relative">
+        <main className="flex-1 overflow-hidden relative flex flex-col">
           <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}

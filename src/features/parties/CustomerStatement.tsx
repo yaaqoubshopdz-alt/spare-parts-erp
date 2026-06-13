@@ -2,10 +2,11 @@
  * CustomerStatement — كشف حساب الزبون (Modal)
  * Table styling matches CustomersPage main table (gradient header, vertical dividers)
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, FileText, Printer, Edit, Trash2, ExternalLink, Save } from 'lucide-react';
 import { showSuccess, showError } from '../../shared/utils/notifications';
 import { useNavigate } from 'react-router-dom';
+import { useSmoothScroll } from '../../shared/hooks/useSmoothScroll';
 
 interface CustomerStatementProps {
   isOpen: boolean;
@@ -18,6 +19,10 @@ export default function CustomerStatement({ isOpen, onClose, customerId }: Custo
   const [loading, setLoading] = useState(false);
   const [customer, setCustomer] = useState<any>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
+
+  // Drag-to-scroll on the transaction table
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  useSmoothScroll<HTMLDivElement>({ direction: 'vertical' }, tableScrollRef);
 
   // Filters
   const [dateFrom, setDateFrom] = useState('');
@@ -180,7 +185,7 @@ export default function CustomerStatement({ isOpen, onClose, customerId }: Custo
         </div>
 
         {/* Table — styled like main CustomersPage table */}
-        <div className="flex-1 overflow-auto custom-scrollbar bg-background_primary">
+        <div ref={tableScrollRef} className="flex-1 overflow-auto custom-scrollbar bg-background_primary">
           <table className="w-full text-sm text-right border-collapse">
             <thead className="sticky top-0 z-30 bg-gradient-to-b from-table_header_from to-table_header_to border-b border-black/30 dark:border-border_default shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
               <tr className="h-[52px]">

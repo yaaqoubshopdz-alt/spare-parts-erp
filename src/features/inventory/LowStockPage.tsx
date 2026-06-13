@@ -1,10 +1,12 @@
 /**
  * LowStockPage — صفحة إدارة المخزون المنخفض
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ShoppingCart, BellOff, Bell, Package, Search } from 'lucide-react';
 import { showSuccess, showError } from '../../shared/utils/notifications';
+import ERPTable, { useColumnManager } from '../../shared/components/table';
+import type { ERPColumn } from '../../shared/components/table/types';
 
 interface LowStockItem {
   id: number;
@@ -55,7 +57,6 @@ export default function LowStockPage() {
         setSortDir('asc');
         return key;
       }
-      // same key — cycle
       setSortDir(d => {
         if (d === 'asc') return 'desc';
         if (d === 'desc') return null;
@@ -98,7 +99,7 @@ export default function LowStockPage() {
     if (match) setCategoryFilter(match.id);
   }, [searchParams, categories]);
 
-  const handleToggleMute = async (id: number) => {
+  const handleToggleMute = useCallback(async (id: number) => {
     try {
       const res = await window.electronAPI.invoke('db:products:toggleMuteLowStock', id);
       if (res.success) {
@@ -108,9 +109,15 @@ export default function LowStockPage() {
         showSuccess(res.data.is_low_stock_muted ? 'تم إخفاء التنبيهات' : 'تم إظهار التنبيهات');
       } else showError(res.error);
     } catch { showError('خطأ'); }
-  };
+  }, []);
 
-  const handleToggleAllMute = async () => {
+  const filtered = useMemo(() => {
+    return products.filter(p =>
+      !search.trim() || p.name.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [products, search]);
+
+  const handleToggleAllMute = useCallback(async () => {
     const allMuted = filtered.every(p => p.is_low_stock_muted);
     let successCount = 0;
     for (const p of filtered) {
@@ -123,24 +130,157 @@ export default function LowStockPage() {
       }
     }
     showSuccess(allMuted ? 'تم إظهار كل التنبيهات' : `تم إخفاء ${successCount} منتج`);
-  };
+  }, [filtered]);
 
-  const handleRestock = (productId: number) => {
+  const handleRestock = useCallback((productId: number) => {
     navigate(`/purchases/new?productId=${productId}`);
-  };
-
-  const filtered = products.filter(p =>
-    !search.trim() || p.name.toLowerCase().includes(search.toLowerCase())
-  );
+  }, [navigate]);
 
   const totalShortage = filtered.reduce((sum, p) => sum + Math.max(0, p.shortage), 0);
   const unmutedCount = products.filter(p => !p.is_low_stock_muted).length;
   const mutedCount = products.filter(p => p.is_low_stock_muted).length;
   const allMuted = filtered.length > 0 && filtered.every(p => p.is_low_stock_muted);
-  const ghostRowCount = loading ? 0 : Math.max(0, 18 - filtered.length);
 
-  const thClass = 'px-3 font-bold text-[13px] text-text_primary border-l border-black/30 dark:border-border_default cursor-pointer hover:bg-background_card select-none transition-all duration-200';
-  const thCenterClass = 'px-3 font-bold text-[13px] text-text_primary border-l border-black/30 dark:border-border_default text-center cursor-pointer hover:bg-background_card select-none transition-all duration-200';
+  // ── تعريف الأعمدة مع دعم التحكم الكامل ──
+  const DEFAULT_COLUMNS = useMemo<ERPColumn<LowStockItem>[]>(() => [
+    {
+      key: 'name',
+      label: 'المنتج',
+      sortable: true,
+      flex: 1,
+      resizable: true,
+      draggable: true,
+      render: (p) => <span className="font-bold text-text_primary">{p.name}</span>,
+    },
+    {
+      key: 'barcode',
+      label: 'الباركود',
+      sortable: true,
+      width: 150,
+      resizable: true,
+      draggable: true,
+      render: (p) => <span className="font-numbers text-text_secondary">{p.barcode || '-'}</span>,
+    },
+    {
+      key: 'category_name',
+      label: 'التصنيف',
+      sortable: true,
+      width: 140,
+      resizable: true,
+      draggable: true,
+      render: (p) => <span className="text-text_secondary">{p.category_name}</span>,
+    },
+    {
+      key: 'min_stock_level',
+      label: 'الحد الأدنى',
+      sortable: true,
+      align: 'center',
+      width: 120,
+      resizable: true,
+      draggable: true,
+      render: (p) => <span className="font-numbers font-bold text-text_primary">{p.min_stock_level}</span>,
+    },
+    {
+      key: 'current_stock',
+      label: 'المخزون الحالي',
+      sortable: true,
+      align: 'center',
+      width: 120,
+      resizable: true,
+      draggable: true,
+      render: (p) => (
+        <span className={`font-numbers font-bold ${p.current_stock <= 0 ? 'text-danger_red' : 'text-warning_amber'}`}>
+          {p.current_stock}
+        </span>
+      ),
+    },
+    {
+      key: 'shortage',
+      label: 'النقص',
+      sortable: true,
+      align: 'center',
+      width: 120,
+      resizable: true,
+      draggable: true,
+      render: (p) => (
+        <span className="font-numbers font-black text-danger_red">
+          {Math.max(0, p.shortage)}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      label: 'الحالة',
+      align: 'center',
+      width: 120,
+      resizable: true,
+      draggable: true,
+      render: (p) => (
+        p.is_low_stock_muted ? (
+          <span className="text-[11px] font-bold text-text_muted bg-text_muted/10 px-2.5 py-1 rounded">مخفي</span>
+        ) : (
+          <span className="text-[11px] font-bold text-danger_red bg-danger_red/10 px-2.5 py-1 rounded">منخفض</span>
+        )
+      ),
+    },
+    {
+      key: 'actions',
+      label: 'إجراءات',
+      align: 'center',
+      width: 130,
+      resizable: false,
+      draggable: false,
+      headerRender: () => (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleAllMute();
+          }}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all hover:scale-105 ${
+            allMuted
+              ? 'bg-warning_amber/20 text-warning_amber'
+              : 'bg-white/10 text-text_primary hover:bg-white/20'
+          }`}
+          title={allMuted ? 'إظهار الكل' : 'إخفاء الكل'}
+        >
+          {allMuted ? <Bell size={13} /> : <BellOff size={13} />}
+          {allMuted ? 'إظهار' : 'إخفاء الكل'}
+        </button>
+      ),
+      render: (p) => (
+        <div className="flex items-center gap-2 justify-center">
+          <button
+            onClick={() => handleRestock(p.id)}
+            className="p-2 rounded-xl bg-primary_blue/10 text-primary_blue hover:bg-primary_blue/20 hover:scale-110 active:scale-90 transition-all duration-200"
+            title="تموين"
+          >
+            <ShoppingCart size={16} />
+          </button>
+          <button
+            onClick={() => handleToggleMute(p.id)}
+            className={`p-2 rounded-xl transition-all duration-200 hover:scale-110 active:scale-90 ${
+              p.is_low_stock_muted
+                ? 'bg-warning_amber/10 text-warning_amber hover:bg-warning_amber/20'
+                : 'bg-text_muted/10 text-text_muted hover:bg-text_muted/20'
+            }`}
+            title={p.is_low_stock_muted ? 'إظهار التنبيهات' : 'إخفاء التنبيهات'}
+          >
+            {p.is_low_stock_muted ? <Bell size={16} /> : <BellOff size={16} />}
+          </button>
+        </div>
+      ),
+    },
+  ], [allMuted, handleToggleAllMute, handleRestock, handleToggleMute]);
+
+  const {
+    columns,
+    allColumns,
+    setWidth,
+    toggleHide,
+    reorder,
+    reset,
+    showAll,
+  } = useColumnManager<ERPColumn<LowStockItem>>('erp_columns_lowstock_v1', DEFAULT_COLUMNS);
 
   return (
     <div className="h-full flex flex-col">
@@ -217,113 +357,27 @@ export default function LowStockPage() {
       </div>
 
       {/* Table — fills all remaining space, sharp corners */}
-      <div className="flex-1 bg-background_secondary border border-border_default overflow-hidden flex flex-col min-h-0">
-        <div className="overflow-y-scroll flex-1 custom-scrollbar">
-          <table className="w-full text-sm text-right border-collapse">
-            <thead className="sticky top-0 z-30 bg-gradient-to-b from-table_header_from to-table_header_to border-b border-black/30 dark:border-border_default shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative">
-              <tr className="h-[52px]">
-                <th className={thClass} onClick={() => toggleSort('name')}>
-                  المنتج{sortKey === 'name' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'name' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
-                </th>
-                <th className={thClass} onClick={() => toggleSort('barcode')}>
-                  الباركود{sortKey === 'barcode' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'barcode' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
-                </th>
-                <th className={thClass} onClick={() => toggleSort('category_name')}>
-                  التصنيف{sortKey === 'category_name' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'category_name' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
-                </th>
-                <th className={thCenterClass} onClick={() => toggleSort('min_stock_level')}>
-                  الحد الأدنى{sortKey === 'min_stock_level' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'min_stock_level' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
-                </th>
-                <th className={thCenterClass} onClick={() => toggleSort('current_stock')}>
-                  المخزون الحالي{sortKey === 'current_stock' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'current_stock' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
-                </th>
-                <th className={thCenterClass} onClick={() => toggleSort('shortage')}>
-                  النقص{sortKey === 'shortage' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'shortage' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
-                </th>
-                <th className="px-3 font-bold text-[13px] text-text_primary border-l border-black/30 dark:border-border_default text-center select-none">الحالة</th>
-                <th className="px-3 w-[130px] border-l border-black/30 dark:border-border_default text-center">
-                  <button
-                    onClick={handleToggleAllMute}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all hover:scale-105 ${
-                      allMuted
-                        ? 'bg-warning_amber/20 text-warning_amber'
-                        : 'bg-white/10 text-text_primary hover:bg-white/20'
-                    }`}
-                    title={allMuted ? 'إظهار الكل' : 'إخفاء الكل'}
-                  >
-                    {allMuted ? <Bell size={13} /> : <BellOff size={13} />}
-                    {allMuted ? 'إظهار' : 'إخفاء الكل'}
-                  </button>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border_default">
-              {loading ? (
-                <tr className="h-11"><td colSpan={8} className="px-4 py-8 text-center text-text_muted bg-background_secondary">جاري التحميل...</td></tr>
-              ) : filtered.length === 0 ? (
-                <tr className="h-11"><td colSpan={8} className="px-4 py-8 text-center text-text_muted bg-background_secondary">لا توجد منتجات منخفضة المخزون</td></tr>
-              ) : filtered.map((p, idx) => (
-                <tr key={p.id} className={`h-11 hover:bg-primary_blue/5 transition-colors ${idx % 2 === 0 ? 'bg-background_secondary' : 'bg-sidebar_bg'}`}>
-                  <td className="px-3 py-2 font-bold text-text_primary border-l border-border_default">{p.name}</td>
-                  <td className="px-3 py-2 font-numbers text-text_secondary border-l border-border_default">{p.barcode || '-'}</td>
-                  <td className="px-3 py-2 text-text_secondary border-l border-border_default">{p.category_name}</td>
-                  <td className="px-3 py-2 text-center font-numbers font-bold text-text_primary border-l border-border_default">{p.min_stock_level}</td>
-                  <td className="px-3 py-2 text-center font-numbers font-bold border-l border-border_default">
-                    <span className={p.current_stock <= 0 ? 'text-danger_red' : 'text-warning_amber'}>
-                      {p.current_stock}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-center font-numbers font-black text-danger_red border-l border-border_default">
-                    {Math.max(0, p.shortage)}
-                  </td>
-                  <td className="px-3 py-2 text-center border-l border-border_default">
-                    {p.is_low_stock_muted ? (
-                      <span className="text-[11px] font-bold text-text_muted bg-text_muted/10 px-2.5 py-1 rounded">مخفي</span>
-                    ) : (
-                      <span className="text-[11px] font-bold text-danger_red bg-danger_red/10 px-2.5 py-1 rounded">منخفض</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 border-l border-border_default">
-                    <div className="flex items-center gap-2 justify-center">
-                      <button
-                        onClick={() => handleRestock(p.id)}
-                        className="p-2 rounded-xl bg-primary_blue/10 text-primary_blue hover:bg-primary_blue/20 hover:scale-110 active:scale-90 transition-all duration-200"
-                        title="تموين"
-                      >
-                        <ShoppingCart size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleToggleMute(p.id)}
-                        className={`p-2 rounded-xl transition-all duration-200 hover:scale-110 active:scale-90 ${
-                          p.is_low_stock_muted
-                            ? 'bg-warning_amber/10 text-warning_amber hover:bg-warning_amber/20'
-                            : 'bg-text_muted/10 text-text_muted hover:bg-text_muted/20'
-                        }`}
-                        title={p.is_low_stock_muted ? 'إظهار التنبيهات' : 'إخفاء التنبيهات'}
-                      >
-                        {p.is_low_stock_muted ? <Bell size={16} /> : <BellOff size={16} />}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {ghostRowCount > 0 && Array.from({ length: ghostRowCount }).map((_, i) => (
-                <tr key={`ghost-${i}`} className={`h-11 pointer-events-none ${(filtered.length + i) % 2 === 0 ? 'bg-background_secondary' : 'bg-sidebar_bg'}`}>
-                  <td className="px-3 py-2 border-l border-border_default">&nbsp;</td>
-                  <td className="px-3 py-2 border-l border-border_default">&nbsp;</td>
-                  <td className="px-3 py-2 border-l border-border_default">&nbsp;</td>
-                  <td className="px-3 py-2 border-l border-border_default text-center">&nbsp;</td>
-                  <td className="px-3 py-2 border-l border-border_default text-center">&nbsp;</td>
-                  <td className="px-3 py-2 border-l border-border_default text-center">&nbsp;</td>
-                  <td className="px-3 py-2 border-l border-border_default text-center">&nbsp;</td>
-                  <td className="px-3 py-2 border-l border-border_default text-center">&nbsp;</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <div className="flex-1 border border-black/[0.07] dark:border-white/[0.06] rounded-2xl overflow-hidden flex flex-col min-h-0">
+        <ERPTable
+          data={filtered}
+          columns={columns}
+          loading={loading}
+          rowKey="id"
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onSort={toggleSort}
+          className="h-full"
+          minRows={18}
+          emptyText="لا توجد منتجات منخفضة المخزون"
+          onResizeColumn={setWidth}
+          onReorderColumns={reorder}
+          onToggleHideColumn={toggleHide}
+          onResetColumns={reset}
+          onShowAllColumns={showAll}
+          hasHiddenColumns={allColumns.some(c => c.hidden)}
 
+        />
+      </div>
     </div>
   );
 }

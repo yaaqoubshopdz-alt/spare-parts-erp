@@ -5,7 +5,7 @@ import { useReactToPrint } from 'react-to-print';
 import {
   Search, Trash2, Printer, Save, CheckCircle, Plus,
   User, Package, X, ArrowUpDown, ShieldAlert, Lock,
-  FolderOpen, Calendar, XCircle, FileText, EyeOff, Eye, Car
+  FolderOpen, Calendar, XCircle, FileText, EyeOff, Eye, Car, Image as ImageIcon
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { roundTo2, calcItemDiscount, calcItemTotal, calcSubtotal, calcGlobalDiscount, calcTax, calcTotal, calcRemaining } from '../../utils/calculations';
@@ -29,6 +29,8 @@ import { useInvoiceIntegration } from './hooks/useInvoiceIntegration';
 import { captureInvoiceSnapshot } from './utils/snapshotEngine';
 import ProInvoiceLayout from '../../shared/components/layout/ProInvoiceLayout';
 import { useShortcutStore } from '../../store/shortcutStore';
+import { useSmoothScroll } from '../../shared/hooks/useSmoothScroll';
+import ProductPhotoViewerModal from '../inventory/ProductPhotoViewerModal';
 
 type SaleType = 'retail' | 'wholesale';
 type DiscountType = 'percent' | 'amount';
@@ -88,11 +90,13 @@ export default function SalesInvoicePage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const productSearchRef = useRef<HTMLInputElement>(null);
+  const dropdownScrollRef = useSmoothScroll<HTMLDivElement>();
+  const customerDropdownScrollRef = useSmoothScroll<HTMLDivElement>();
   const customerSearchRef = useRef<HTMLInputElement>(null);
   const printRef = useRef<HTMLDivElement>(null);
   const isSavingRef = useRef(false);
   const isSavedRef = useRef(false);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const getColumnLabel = (id: string, fallback: string) => {
     switch (id) {
@@ -122,10 +126,12 @@ export default function SalesInvoicePage() {
   const [openModalDate, setOpenModalDate] = useState(new Date().toISOString().split('T')[0]);
   const [openModalInvoices, setOpenModalInvoices] = useState<any[]>([]);
   const [openModalLoading, setOpenModalLoading] = useState(false);
+  const [openModalOnlyDrafts, setOpenModalOnlyDrafts] = useState(false);
 
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinAction, setPinAction] = useState<'cancel' | 'high_discount' | null>(null);
   const [notification, setNotification] = useState<{ type: 'save' | 'new'; title: string; message: string } | null>(null);
+  const [invoiceStatus, setInvoiceStatus] = useState<'draft' | 'confirmed' | 'cancelled' | null>(null);
 
   // Zustand Store Integration
   const store = useWorkspaceStore(
@@ -239,8 +245,9 @@ export default function SalesInvoicePage() {
     setOpenModalLoading(true);
     try {
       const res: any = await window.electronAPI.invoke('db:sales:getAll', {
-        date_from: openModalDate,
-        date_to: openModalDate,
+        date_from: openModalOnlyDrafts ? undefined : openModalDate,
+        date_to: openModalOnlyDrafts ? undefined : openModalDate,
+        status: openModalOnlyDrafts ? 'draft' : undefined,
         search: openModalSearch,
         limit: 50
       });
@@ -253,9 +260,9 @@ export default function SalesInvoicePage() {
     if (showOpenModal) {
       loadInvoices();
     }
-  }, [showOpenModal, openModalDate, openModalSearch]);
+  }, [showOpenModal, openModalDate, openModalSearch, openModalOnlyDrafts]);
 
-  const handleOpenInvoice = async (id: number) => {
+  const handleOpenInvoice = useCallback(async (id: number) => {
     try {
       const res: any = await window.electronAPI?.invoke('db:sales:getById', id);
       if (res?.success && res.data) {
@@ -280,6 +287,7 @@ export default function SalesInvoicePage() {
           has_sub_unit: item.has_sub_unit ? true : false,
           pieces_per_box: item.pieces_per_box || 1,
           unit_name: item.unit_name || 'حبة',
+          product_is_active: item.product_is_active !== undefined ? item.product_is_active : 1,
         }));
 
         updateWorkspaceFields({
@@ -299,12 +307,13 @@ export default function SalesInvoicePage() {
         });
         
         isSavedRef.current = true;
+        setInvoiceStatus(inv.status);
         setShowOpenModal(false);
       }
     } catch (e) {
       console.error('Error opening invoice:', e);
     }
-  };
+  }, [updateWorkspaceFields]);
 
   const toggleSort = (key: string) => {
     setSortConfig(prev => {
@@ -363,6 +372,8 @@ export default function SalesInvoicePage() {
   const draggedColIndex = useRef<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, colId: string } | null>(null);
   const [rowContextMenu, setRowContextMenu] = useState<{ x: number, y: number, itemId: string, productId: number } | null>(null);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [photoModalProduct, setPhotoModalProduct] = useState<{ id: number; name: string; barcode?: string } | null>(null);
 
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
 
@@ -490,11 +501,11 @@ export default function SalesInvoicePage() {
     const invoiceIdParam = searchParams.get('invoiceId');
     if (invoiceIdParam) {
       const id = parseInt(invoiceIdParam, 10);
-      if (!isNaN(id)) {
+      if (!isNaN(id) && id !== currentInvoiceId) {
         handleOpenInvoice(id);
       }
     }
-  }, []);
+  }, [searchParams, currentInvoiceId, handleOpenInvoice]);
 
   // Product search with debounce
   useEffect(() => {
@@ -691,8 +702,9 @@ export default function SalesInvoicePage() {
     }
   };
 
-  const resetInvoice = async () => {
-    if (items.length > 0 && !isSavedRef.current && !currentInvoiceId) {
+  const resetInvoice = async (skipAutoSave: any = false) => {
+    const shouldSkip = skipAutoSave === true;
+    if (!shouldSkip && items.length > 0 && !isSavedRef.current && invoiceStatus !== 'confirmed' && invoiceStatus !== 'cancelled') {
       // حفظ تلقائي كمسودة
       try {
         const api = window.electronAPI;
@@ -738,6 +750,7 @@ export default function SalesInvoicePage() {
     }
     isSavedRef.current = false;
     setCurrentInvoiceId(null);
+    setInvoiceStatus(null);
     setItems([]);
     setCustomerId(null);
     setCustomerName('زبون عام');
@@ -751,6 +764,7 @@ export default function SalesInvoicePage() {
     setIsCancelled(false);
     setIsLinked(true);
     setSaveSessionId(`SALE-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
+    setSearchParams({}, { replace: true });
     productSearchRef.current?.focus();
   };
 
@@ -815,6 +829,7 @@ export default function SalesInvoicePage() {
 
       if (res?.success) {
         isSavedRef.current = true;
+        setInvoiceStatus('confirmed');
         // حفظ الـ ID لأول مرة
         if (!currentInvoiceId && res.id) {
           setCurrentInvoiceId(res.id);
@@ -872,7 +887,7 @@ export default function SalesInvoicePage() {
           user_id: user?.id,
         }).catch(() => { });
 
-        setIsCancelled(true);
+        resetInvoice(true);
       } else {
         toast.error(res?.error || 'حدث خطأ أثناء الإلغاء');
       }
@@ -940,6 +955,28 @@ export default function SalesInvoicePage() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [items, total, paidAmount, remaining, customerId, customerName, invoiceNumber, currentInvoiceId, shortcuts, cancelInvoice]);
+
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const handleMobileBarcode = async (data: { barcode: string; found: boolean; name: string; price: number | null; quantity: number | null }) => {
+      if (!data.found) return; // Handled globally by App.tsx to avoid duplicate errors
+      try {
+        const res = await window.electronAPI.invoke('db:products:getByBarcodeOrCode', data.barcode);
+        if (res.success && res.data) {
+          addProduct(res.data);
+          toast.success(`تمت إضافة المنتج من الهاتف: ${res.data.name} 📱`);
+        }
+      } catch (err) {
+        console.error('Error handling mobile barcode scan:', err);
+      }
+    };
+
+    window.electronAPI.on('mobile:barcode-scanned', handleMobileBarcode);
+    return () => {
+      window.electronAPI?.removeAllListeners('mobile:barcode-scanned');
+    };
+  }, [addProduct]);
 
   const sortedProductResults = [...productResults].sort((a, b) => {
     if (!dropdownSortKey) return 0;
@@ -1097,7 +1134,7 @@ export default function SalesInvoicePage() {
               </div>
 
               {/* Table Body (Results) */}
-              <div className="max-h-[580px] overflow-y-auto p-1 custom-scrollbar">
+              <div ref={dropdownScrollRef} className="max-h-[580px] overflow-y-auto p-1 custom-scrollbar">
                 {sortedProductResults.map((p: any, idx: number) => (
                   <GlassDropdownItem key={p.id} delay={0.06 + idx * 0.035}>
                     <button onClick={() => addProduct(p)}
@@ -1202,7 +1239,7 @@ export default function SalesInvoicePage() {
                   <div className="w-[130px] px-2 text-center">{t('invoice.phone_number')}</div>
                 </div>
 
-                <div className="max-h-[350px] overflow-y-auto p-1 custom-scrollbar">
+                <div ref={customerDropdownScrollRef} className="max-h-[350px] overflow-y-auto p-1 custom-scrollbar">
                   {customerResults.map((c: any, idx: number) => (
                     <GlassDropdownItem key={c.id} delay={0.06 + idx * 0.035}>
                       <button
@@ -1338,7 +1375,14 @@ export default function SalesInvoicePage() {
                 case 'barcode':
                   return <div key={col.id} style={cellStyle} className={`${commonClasses} text-[12px] font-medium font-numbers text-text_primary`}>{item.product_barcode_snapshot || '-'}</div>;
                 case 'name':
-                  return <div key={col.id} style={cellStyle} dir="auto" className={`${commonClasses} text-[14px] font-bold text-text_primary overflow-hidden text-ellipsis whitespace-nowrap group-hover:text-primary_blue transition-colors`}>{item.product_name_snapshot}</div>;
+                  return (
+                    <div key={col.id} style={cellStyle} dir="auto" className={`${commonClasses} text-[14px] font-bold text-text_primary overflow-hidden text-ellipsis whitespace-nowrap group-hover:text-primary_blue transition-colors flex items-center gap-1.5`}>
+                      <span>{item.product_name_snapshot}</span>
+                      {item.product_is_active === 0 && (
+                        <span className="shrink-0 text-[10px] bg-danger_red/20 text-danger_red font-black px-1.5 py-0.5 rounded border border-danger_red/30">موقوف</span>
+                      )}
+                    </div>
+                  );
                 case 'unit':
                   return (
                     <div key={col.id} style={cellStyle} className={`${commonClasses} px-1`}>
@@ -1507,7 +1551,7 @@ export default function SalesInvoicePage() {
               </button>
             </div>
 
-            <div className="flex gap-4 mb-6 shrink-0">
+            <div className="flex gap-4 mb-6 shrink-0 items-center">
               <div className="flex-1 relative">
                 <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                   <Search className="h-5 w-5 text-text_muted" />
@@ -1528,10 +1572,23 @@ export default function SalesInvoicePage() {
                 <input
                   type="date"
                   value={openModalDate}
+                  disabled={openModalOnlyDrafts}
                   onChange={(e) => setOpenModalDate(e.target.value)}
-                  className="w-full bg-background_card border border-border_default rounded-xl pr-10 pl-4 py-3 text-sm text-text_primary focus:border-primary_blue focus:outline-none font-numbers"
+                  className="w-full bg-background_card border border-border_default rounded-xl pr-10 pl-4 py-3 text-sm text-text_primary focus:border-primary_blue focus:outline-none font-numbers disabled:opacity-40 disabled:cursor-not-allowed"
                 />
               </div>
+              <button
+                type="button"
+                onClick={() => setOpenModalOnlyDrafts(!openModalOnlyDrafts)}
+                className={`flex items-center gap-2 px-5 py-3 h-[46px] rounded-xl border-2 font-bold text-sm transition-all select-none ${
+                  openModalOnlyDrafts
+                    ? 'bg-warning_amber/20 text-warning_amber border-warning_amber/40 shadow-[0_0_12px_rgba(245,158,11,0.15)]'
+                    : 'bg-background_card text-text_secondary border-border_default hover:text-text_primary hover:bg-background_card_hover'
+                }`}
+              >
+                <FileText size={16} />
+                <span>عرض المسودات فقط</span>
+              </button>
             </div>
 
             <div className="flex-1 overflow-y-auto min-h-[400px]">
@@ -1606,6 +1663,23 @@ export default function SalesInvoicePage() {
           <div className="px-3 py-1.5 text-[10px] font-bold text-text_muted border-b border-border_default">{t('invoice.row_options')}</div>
           <button
             onClick={() => {
+              const activeItem = items.find(i => i.id === rowContextMenu.itemId);
+              setPhotoModalProduct({
+                id: rowContextMenu.productId,
+                name: activeItem?.product_name_snapshot || 'منتج',
+                barcode: activeItem?.product_barcode_snapshot || undefined
+              });
+              setShowPhotoModal(true);
+              setRowContextMenu(null);
+            }}
+            className="w-full text-right px-3 py-2 text-sm text-text_primary hover:bg-text_primary/10 rounded-lg transition-colors flex items-center justify-between animate-pulse-subtle"
+          >
+            <span>عرض صور المنتج</span>
+            <ImageIcon size={14} className="text-text_muted" />
+          </button>
+          <div className="border-t border-border_default my-1" />
+          <button
+            onClick={() => {
               updateItemUnit(rowContextMenu.itemId, 'كيس');
               setRowContextMenu(null);
             }}
@@ -1646,6 +1720,15 @@ export default function SalesInvoicePage() {
           </div>
         </div>
       )}
+
+      <ProductPhotoViewerModal
+        isOpen={showPhotoModal}
+        product={photoModalProduct}
+        onClose={() => {
+          setShowPhotoModal(false);
+          setPhotoModalProduct(null);
+        }}
+      />
 
       {/* Advanced Product Finder Modal */}
       <AdvancedProductFinder

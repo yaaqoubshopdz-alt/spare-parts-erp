@@ -55,17 +55,29 @@ export default function TopBar() {
   const close = () => window.electronAPI?.invoke('window:close');
 
   return (
-    <header className="relative titlebar-drag flex h-10 items-center border-b border-border_default/20 bg-topbar_bg backdrop-blur-md px-4" dir="ltr">
-      {/* Window Controls - ALWAYS LTR on the far left */}
-      <div className="titlebar-no-drag flex items-center gap-1">
-        <button onClick={minimize} className="w-8 h-8 flex items-center justify-center rounded-lg text-text_muted hover:bg-background_card_hover hover:text-text_primary transition-colors">
-          <Minus size={14} />
+    <header className="relative titlebar-drag flex h-10 items-center border-b border-black/[0.08] dark:border-white/[0.10] bg-transparent px-4" dir="ltr">
+      {/* Window Controls - ALWAYS LTR on the far left, ordered for RTL window standard */}
+      <div className="titlebar-no-drag flex items-center gap-1.5">
+        <button 
+          onClick={close} 
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-text_muted hover:bg-danger_red hover:text-white transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
+          title="إغلاق"
+        >
+          <X size={13} />
         </button>
-        <button onClick={maximize} className="w-8 h-8 flex items-center justify-center rounded-lg text-text_muted hover:bg-background_card_hover hover:text-text_primary transition-colors">
-          <Square size={12} />
+        <button 
+          onClick={maximize} 
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-text_muted hover:bg-background_card_hover hover:text-text_primary transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
+          title="تكبير"
+        >
+          <Square size={11} />
         </button>
-        <button onClick={close} className="w-8 h-8 flex items-center justify-center rounded-lg text-text_muted hover:bg-danger_red hover:text-white transition-colors">
-          <X size={14} />
+        <button 
+          onClick={minimize} 
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-text_muted hover:bg-background_card_hover hover:text-text_primary transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
+          title="تصغير"
+        >
+          <Minus size={13} />
         </button>
       </div>
 
@@ -80,20 +92,21 @@ export default function TopBar() {
         </button>
       )}
 
-      <div className="h-4 w-[1px] bg-border_default/30 mx-3 shrink-0" />
+      <div className="h-4 w-[1px] bg-black/15 dark:bg-white/15 mx-3 shrink-0" />
 
-      {/* Centered Page Title (RTL/LTR unified) */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 titlebar-no-drag flex items-center gap-2 select-none pointer-events-none" dir={language === 'ar' ? 'rtl' : 'ltr'}>
+      {/* Centered Page Title (RTL/LTR unified floating glass capsule) */}
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 titlebar-no-drag flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-background_card/40 border border-border_default/10 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.08)] backdrop-blur-md select-none pointer-events-none transition-all" dir={language === 'ar' ? 'rtl' : 'ltr'}>
         {routeMeta ? (
           <>
-            <span className="text-primary_blue/80 shrink-0">{routeMeta.icon}</span>
-            <div className="flex items-center gap-2.5 min-w-0">
-              <h1 className="text-sm md:text-base font-black text-text_primary truncate tracking-tight">{routeMeta.title}</h1>
-              <span className="hidden md:inline text-[10px] font-bold text-text_muted/60 truncate max-w-[200px] mt-0.5">{routeMeta.subtitle}</span>
+            <span className="text-primary_blue shrink-0 flex items-center justify-center w-4 h-4">{routeMeta.icon}</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <h1 className="text-xs md:text-sm font-bold text-text_primary truncate tracking-tight">{routeMeta.title}</h1>
+              <div className="h-3 w-[1px] bg-border_default/20 hidden md:block" />
+              <span className="hidden md:inline text-[9px] font-medium text-text_muted truncate max-w-[150px]">{routeMeta.subtitle}</span>
             </div>
           </>
         ) : (
-          <h1 className="text-sm md:text-base font-black text-text_primary">YK MS DZ</h1>
+          <h1 className="text-xs md:text-sm font-black text-text_primary tracking-wider px-1">YK MS DZ</h1>
         )}
       </div>
 
@@ -101,32 +114,32 @@ export default function TopBar() {
         // RTL Mode Layout
         <>
           {/* DateTime & Switcher aligned next to Separator */}
-          <div className="titlebar-no-drag flex items-center gap-3">
+          <div className="titlebar-no-drag flex items-center gap-2.5">
             {/* Layout direction toggle button */}
             <button
               onClick={toggleLanguage}
-              className="group flex items-center gap-2 px-3 py-1.5 rounded-xl bg-background_card border border-border_default hover:border-primary_blue/30 hover:bg-primary_blue/5 transition-all select-none shadow-sm outline-none"
+              className="group flex items-center gap-2 px-3 py-1.5 rounded-xl bg-background_card/40 border border-border_default/10 hover:border-primary_blue/30 hover:bg-primary_blue/5 hover:scale-[1.02] active:scale-[0.98] hover:shadow-[0_2px_8px_-3px_rgba(37,99,235,0.12)] transition-all duration-200 select-none shadow-sm outline-none cursor-pointer"
               title="تغيير اتجاه التطبيق إلى اليسار (Français)"
             >
-              <AlignRight size={14} className="text-text_muted group-hover:text-primary_blue transition-colors" />
+              <AlignRight size={13} className="text-text_muted group-hover:text-primary_blue transition-colors" />
               <span className="text-xs font-bold text-text_secondary group-hover:text-primary_blue transition-colors">
                 العربية
               </span>
             </button>
 
             {/* DateTime */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background_card border border-border_default text-text_primary font-numbers text-xs font-bold select-none transition-colors">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-background_card/40 border border-border_default/10 text-text_primary font-numbers text-xs font-bold shadow-sm select-none transition-colors">
               <Clock size={12} className="text-primary_blue animate-pulse shrink-0" />
-              <span>{now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              <span className="tracking-wider">{now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
             </div>
 
             {/* Switch User Button */}
             <button
               onClick={() => useAuthStore.getState().setShowSwitchOverlay(true)}
-              className="group flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background_card border border-border_default hover:border-primary_blue/30 hover:bg-primary_blue/5 transition-all select-none shadow-sm outline-none cursor-pointer"
+              className="group flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background_card/40 border border-border_default/10 hover:border-primary_blue/30 hover:bg-primary_blue/5 hover:scale-[1.02] active:scale-[0.98] hover:shadow-[0_2px_8px_-3px_rgba(37,99,235,0.12)] transition-all duration-200 select-none shadow-sm outline-none cursor-pointer"
               title="تبديل الموظف"
             >
-              <Users size={14} className="text-text_muted group-hover:text-primary_blue transition-colors" />
+              <Users size={13} className="text-text_muted group-hover:text-primary_blue transition-colors" />
               <span className="text-xs font-bold text-text_secondary group-hover:text-primary_blue transition-colors">
                 تبديل
               </span>
@@ -143,20 +156,20 @@ export default function TopBar() {
           <div className="flex-1" />
 
           {/* DateTime & Switcher on the far right */}
-          <div className="titlebar-no-drag flex items-center gap-3">
+          <div className="titlebar-no-drag flex items-center gap-2.5">
             {/* DateTime */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background_card border border-border_default text-text_primary font-numbers text-xs font-bold select-none transition-colors">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-background_card/40 border border-border_default/10 text-text_primary font-numbers text-xs font-bold shadow-sm select-none transition-colors">
               <Clock size={12} className="text-primary_blue animate-pulse shrink-0" />
-              <span>{now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              <span className="tracking-wider">{now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
             </div>
 
             {/* Switch User Button */}
             <button
               onClick={() => useAuthStore.getState().setShowSwitchOverlay(true)}
-              className="group flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background_card border border-border_default hover:border-primary_blue/30 hover:bg-primary_blue/5 transition-all select-none shadow-sm outline-none cursor-pointer"
+              className="group flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background_card/40 border border-border_default/10 hover:border-primary_blue/30 hover:bg-primary_blue/5 hover:scale-[1.02] active:scale-[0.98] hover:shadow-[0_2px_8px_-3px_rgba(37,99,235,0.12)] transition-all duration-200 select-none shadow-sm outline-none cursor-pointer"
               title="Changer d'utilisateur"
             >
-              <Users size={14} className="text-text_muted group-hover:text-primary_blue transition-colors" />
+              <Users size={13} className="text-text_muted group-hover:text-primary_blue transition-colors" />
               <span className="text-xs font-bold text-text_secondary group-hover:text-primary_blue transition-colors">
                 Switch
               </span>
@@ -165,10 +178,10 @@ export default function TopBar() {
             {/* Layout direction toggle button */}
             <button
               onClick={toggleLanguage}
-              className="group flex items-center gap-2 px-3 py-1.5 rounded-xl bg-background_card border border-border_default hover:border-primary_blue/30 hover:bg-primary_blue/5 transition-all select-none shadow-sm outline-none"
+              className="group flex items-center gap-2 px-3 py-1.5 rounded-xl bg-background_card/40 border border-border_default/10 hover:border-primary_blue/30 hover:bg-primary_blue/5 hover:scale-[1.02] active:scale-[0.98] hover:shadow-[0_2px_8px_-3px_rgba(37,99,235,0.12)] transition-all duration-200 select-none shadow-sm outline-none"
               title="تغيير اتجاه التطبيق إلى اليمين (العربية)"
             >
-              <AlignLeft size={14} className="text-text_muted group-hover:text-primary_blue transition-colors" />
+              <AlignLeft size={13} className="text-text_muted group-hover:text-primary_blue transition-colors" />
               <span className="text-xs font-bold text-text_secondary group-hover:text-primary_blue transition-colors">
                 Français
               </span>

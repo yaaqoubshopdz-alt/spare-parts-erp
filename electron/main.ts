@@ -6,9 +6,108 @@ import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { autoUpdater } from 'electron-updater';
+
+// ── File Logging in Production ──
+const userDataPath = app.getPath('userData');
+const logDirectory = path.join(userDataPath, 'Logs');
+if (!fs.existsSync(logDirectory)) {
+  fs.mkdirSync(logDirectory, { recursive: true });
+}
+const logFilePath = path.join(logDirectory, 'main.log');
+
+try {
+  fs.appendFileSync(logFilePath, `\n\n--- App Started: ${new Date().toISOString()} ---\n`);
+} catch (e) {
+  // Safe fallback
+}
+
+function logToFile(level: string, ...args: any[]) {
+  const message = args.map(arg => {
+    if (arg instanceof Error) {
+      return `${arg.message}\n${arg.stack}`;
+    }
+    if (typeof arg === 'object') {
+      try {
+        return JSON.stringify(arg);
+      } catch {
+        return String(arg);
+      }
+    }
+    return String(arg);
+  }).join(' ');
+  const logLine = `[${new Date().toISOString()}] [${level}] ${message}\n`;
+  try {
+    fs.appendFileSync(logFilePath, logLine);
+  } catch (err) {
+    // Ignore logging errors
+  }
+}
+
+// Redirect console methods to write to main.log as well
+const originalLog = console.log;
+const originalError = console.error;
+const originalWarn = console.warn;
+
+console.log = (...args) => {
+  originalLog(...args);
+  logToFile('INFO', ...args);
+};
+
+console.error = (...args) => {
+  originalError(...args);
+  logToFile('ERROR', ...args);
+};
+
+console.warn = (...args) => {
+  originalWarn(...args);
+  logToFile('WARN', ...args);
+};
+
+// ── Single Instance Lock ──
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log('[Main] Another instance is already running. Quitting.');
+  app.quit();
+  process.exit(0);
+}
+
+app.on('second-instance', () => {
+  // Focus the main window if another instance is launched
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
+// ── Catch all unhandled errors and display them in a dialog box (must be registered before importing native modules) ──
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  try {
+    dialog.showErrorBox(
+      'خطأ في النظام (Uncaught Exception)',
+      `حدث خطأ غير متوقع أثناء تشغيل البرنامج:\n\n${error.message}\n\nتفاصيل الخطأ:\n${error.stack}`
+    );
+  } catch (e) {
+    // Fallback if dialog is not ready
+  }
+});
+
+process.on('unhandledRejection', (reason: any) => {
+  console.error('Unhandled Rejection:', reason);
+  try {
+    dialog.showErrorBox(
+      'خطأ في النظام (Unhandled Rejection)',
+      `حدث خطأ في العمليات الخلفية للبرنامج:\n\n${reason}`
+    );
+  } catch (e) {
+    // Fallback if dialog is not ready
+  }
+});
+
 import { DatabaseService } from './services/database.service';
 import { AuthService } from './services/auth.service';
 import { AccountingEngine } from './services/accounting.service';
+import { BackupService } from './services/backup.service';
 
 // IPC Modules
 import { registerProductsIPC } from './ipc/products.ipc';
@@ -27,6 +126,8 @@ import { registerPrintIPC } from './ipc/print.ipc';
 import { registerInventoryIPC } from './ipc/inventory.ipc';
 import { registerAccountingIPC } from './ipc/accounting.ipc';
 import { registerInventoryCountIPC } from './ipc/inventory-count.ipc';
+import { registerMobileIPC } from './ipc/mobile.ipc';
+import { MobileBridge } from './mobile-bridge/MobileBridge';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -36,9 +137,9 @@ function createWindow() {
     height: 620,
     resizable: false,
     frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
+    transparent: false,
+    backgroundColor: '#14171d',
+    hasShadow: true,
     center: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -55,6 +156,8 @@ function createWindow() {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    // Temporarily open DevTools in production to diagnose renderer crashes
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
   mainWindow.on('closed', () => {
@@ -147,6 +250,7 @@ function registerAllIPC() {
   registerPrintIPC();
   registerAccountingIPC();
   registerInventoryCountIPC();
+  registerMobileIPC();
   console.log('[Main] All IPC modules registered');
 }
 
@@ -198,6 +302,12 @@ app.whenReady().then(() => {
   // Register IPC handlers
   registerAllIPC();
 
+  // Start automatic backup scheduler
+  BackupService.startScheduler();
+
+  // Start Mobile Bridge for helper mobile app connection
+  MobileBridge.start();
+
   createWindow();
 
   // Setup auto-updater for production
@@ -209,6 +319,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  MobileBridge.stop();
   DatabaseService.close();
   if (process.platform !== 'darwin') app.quit();
 });

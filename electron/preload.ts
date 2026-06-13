@@ -8,7 +8,7 @@ const ALLOWED_INVOKE_CHANNELS = [
   // Auth
   'auth:login', 'auth:logout', 'auth:checkSession', 'auth:changePassword', 'auth:loginByPin', 'auth:verifyPin', 'auth:loginDirect', 'auth:verifyPassword',
   // Products
-  'db:products:getAll', 'db:products:search', 'db:products:create', 'db:products:update', 'db:products:delete', 'db:products:getById', 'db:products:getByBarcodeOrCode', 'db:products:recordUsage', 'db:products:suggest',
+  'db:products:getAll', 'db:products:search', 'db:products:create', 'db:products:update', 'db:products:delete', 'db:products:getById', 'db:products:getByBarcodeOrCode', 'db:products:recordUsage', 'db:products:suggest', 'db:products:getImages', 'db:products:deleteImage',
   // Product Barcodes
   'db:barcodes:getByProduct', 'db:barcodes:create', 'db:barcodes:delete',
   // Categories
@@ -52,7 +52,7 @@ const ALLOWED_INVOKE_CHANNELS = [
   // Locations
   'db:locations:getAll',
   // Settings
-  'db:settings:getAll', 'db:settings:update', 'db:settings:uploadLogo', 'db:settings:reset',
+  'db:settings:getAll', 'db:settings:update', 'db:settings:uploadLogo', 'db:settings:reset', 'dialog:selectDirectory',
   // Audit
   'db:audit:getRecent',
   // Accounting Engine
@@ -77,6 +77,8 @@ const ALLOWED_INVOKE_CHANNELS = [
   'shell:openExternal',
   // Window
   'window:minimize', 'window:maximize', 'window:close', 'window:capturePage', 'window:expand', 'window:shrink',
+  // Mobile integration
+  'mobile:get-server-info', 'mobile:get-status', 'mobile:get-pending-photos', 'mobile:request-photo', 'mobile:get-invoice-queue', 'mobile:mark-invoice-processed',
 ];
 
 contextBridge.exposeInMainWorld('electronAPI', {

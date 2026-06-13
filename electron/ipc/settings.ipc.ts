@@ -122,54 +122,141 @@ export function registerSettingsIPC() {
     }
   });
 
+  /**
+   * db:settings:reset
+   * ────────────────────────────────────────────────────────────────────────
+   * محذوف: المنتجات، الفواتير، المخزون، العملاء، الموردين، المدفوعات،
+   *        الحسابات، جلسات الجرد، السجلات، قاموس البحث الذكي المرتبط بالمنتجات.
+   *
+   * محفوظ (لا يُمس أبداً):
+   *   ✅ vehicle_brands   — ماركات المركبات
+   *   ✅ vehicle_models   — موديلات المركبات
+   *   ✅ product_fitments — توافق المركبات (يُبقى لكن product_id = NULL)
+   *   ✅ search_dictionary — قاموس البحث الذكي المستقل (الكلمات والترادفات)
+   *   ✅ app_settings     — إعدادات المحل والطباعة
+   *   ✅ users            — حسابات الموظفين
+   *   ✅ locations        — المواقع
+   *   ✅ categories       — الفئات
+   *   ✅ brands           — الماركات
+   *   ✅ units            — الوحدات
+   *   ✅ cash_boxes       — صناديق النقد (الرصيد يُصفَّر فقط)
+   *   ✅ number_sequences — تسلسل الأرقام (يُصفَّر فقط)
+   * ────────────────────────────────────────────────────────────────────────
+   */
   ipcMain.handle('db:settings:reset', async () => {
     const raw = db();
     const tx = raw.transaction(() => {
-      // Temporarily disable foreign keys
-      raw.prepare('PRAGMA foreign_keys = OFF').run();
+      // ── حذف المثيرات (Triggers) مؤقتاً لتخطي حظر حذف الفواتير ──────────
+      raw.prepare('DROP TRIGGER IF EXISTS prevent_sales_delete').run();
+      raw.prepare('DROP TRIGGER IF EXISTS prevent_purchases_delete').run();
 
+      // ── بيانات الفواتير والمبيعات ──────────────────────────────────────
       raw.prepare('DELETE FROM sales_invoice_items').run();
       raw.prepare('DELETE FROM sales_invoices').run();
       raw.prepare('DELETE FROM purchase_invoice_items').run();
       raw.prepare('DELETE FROM purchase_invoices').run();
-      raw.prepare('DELETE FROM sales_return_items').run();
-      raw.prepare('DELETE FROM sales_returns').run();
-      raw.prepare('DELETE FROM purchase_return_items').run();
-      raw.prepare('DELETE FROM purchase_returns').run();
+
+      // المرتجعات إن وجدت (تُتجاهل بأمان إن لم تكن موجودة)
+      try { raw.prepare('DELETE FROM sales_return_items').run(); } catch {}
+      try { raw.prepare('DELETE FROM sales_returns').run(); } catch {}
+      try { raw.prepare('DELETE FROM purchase_return_items').run(); } catch {}
+      try { raw.prepare('DELETE FROM purchase_returns').run(); } catch {}
+
+      // ── المنتجات وتوابعها ─────────────────────────────────────────────
       raw.prepare('DELETE FROM product_barcodes').run();
-      // Keep product fitments mapped but orphan them (set product_id = NULL) to persist vehicle mappings across resets
+
+      // توافق المركبات: يُحفظ الربط ولكن بدون مرجع للمنتج (product_id = NULL)
+      // ✅ vehicle_brands و vehicle_models تبقى كما هي
       raw.prepare('UPDATE product_fitments SET product_id = NULL').run();
+
       raw.prepare('DELETE FROM product_batches').run();
       raw.prepare('DELETE FROM stock_balances').run();
       raw.prepare('DELETE FROM stock_movements').run();
       raw.prepare('DELETE FROM price_history').run();
       raw.prepare('DELETE FROM products').run();
+
+      // ── بيانات البحث الذكي المرتبطة بالمنتجات (تُحذف لأن المنتجات غير موجودة)
+      // product_search_index و search_usage و product_usage تعتمد على products
+      // أما search_dictionary (قاموس الكلمات/الترادفات) → ✅ يبقى محفوظاً
+      raw.prepare('DELETE FROM product_search_index').run();
+      try { raw.prepare('DELETE FROM search_usage').run(); } catch {}
+      try { raw.prepare('DELETE FROM product_usage').run(); } catch {}
+
+      // ── المالية والمدفوعات ────────────────────────────────────────────
       raw.prepare('DELETE FROM payments').run();
       raw.prepare('DELETE FROM cash_transactions').run();
       raw.prepare('DELETE FROM cash_closings').run();
       raw.prepare('DELETE FROM expenses').run();
-      raw.prepare('DELETE FROM audit_log').run();
-      raw.prepare('DELETE FROM backup_log').run();
-      raw.prepare('DELETE FROM journal_entry_lines').run();
-      raw.prepare('DELETE FROM journal_entries').run();
-      raw.prepare('DELETE FROM idempotency_keys').run();
-      raw.prepare('DELETE FROM inventory_count_items').run();
-      raw.prepare('DELETE FROM inventory_count_sessions').run();
+
+      // ── العملاء والموردين ─────────────────────────────────────────────
       raw.prepare('DELETE FROM customers').run();
       raw.prepare('DELETE FROM suppliers').run();
 
-      // Reset sequences & balances
+      // ── المحاسبة ─────────────────────────────────────────────────────
+      raw.prepare('DELETE FROM journal_entry_lines').run();
+      raw.prepare('DELETE FROM journal_entries').run();
+
+      // ── السجلات والتتبع ───────────────────────────────────────────────
+      raw.prepare('DELETE FROM audit_log').run();
+      raw.prepare('DELETE FROM backup_log').run();
+      raw.prepare('DELETE FROM idempotency_keys').run();
+
+      // ── جلسات الجرد ──────────────────────────────────────────────────
+      raw.prepare('DELETE FROM inventory_count_items').run();
+      raw.prepare('DELETE FROM inventory_count_sessions').run();
+
+      // ── إعادة تصفير الأرصدة والتسلسلات ──────────────────────────────
       raw.prepare('UPDATE cash_boxes SET current_balance = 0').run();
       raw.prepare('UPDATE number_sequences SET last_number = 0, last_date = NULL').run();
 
-      // Re-enable foreign keys
-      raw.prepare('PRAGMA foreign_keys = ON').run();
+      // ── إعادة إنشاء المثيرات لحماية الفواتير في المستقبل ───────────────
+      raw.prepare(`
+        CREATE TRIGGER IF NOT EXISTS prevent_sales_delete
+        BEFORE DELETE ON sales_invoices
+        BEGIN
+          SELECT RAISE(ABORT, 'لا يمكن حذف فواتير المبيعات. يجب إلغاؤها.');
+        END;
+      `).run();
+
+      raw.prepare(`
+        CREATE TRIGGER IF NOT EXISTS prevent_purchases_delete
+        BEFORE DELETE ON purchase_invoices
+        BEGIN
+          SELECT RAISE(ABORT, 'لا يمكن حذف فواتير المشتريات. يجب إلغاؤها.');
+        END;
+      `).run();
+
       return true;
     });
 
     try {
+      // ── تعطيل المفاتيح الخارجية مؤقتاً قبل بدء المعاملة ─────────────────
+      raw.prepare('PRAGMA foreign_keys = OFF').run();
+
       tx();
       return { success: true };
+    } catch (e: any) { 
+      return { success: false, error: e.message }; 
+    } finally {
+      // ── إعادة تفعيل المفاتيح الخارجية دائماً بعد انتهاء المعاملة ───────
+      try {
+        raw.prepare('PRAGMA foreign_keys = ON').run();
+      } catch (err) {
+        console.error('Failed to re-enable foreign keys:', err);
+      }
+    }
+  });
+
+  ipcMain.handle('dialog:selectDirectory', async (event) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender) || undefined;
+      const { filePaths, canceled } = await dialog.showOpenDialog(win!, {
+        title: 'اختر مجلد الحفظ التلقائي للنسخة الاحتياطية',
+        properties: ['openDirectory', 'createDirectory']
+      });
+
+      if (canceled || filePaths.length === 0) return { success: false, error: 'Canceled' };
+      return { success: true, path: filePaths[0] };
     } catch (e: any) {
       return { success: false, error: e.message };
     }

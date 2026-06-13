@@ -655,7 +655,7 @@ export default function SimpleReports({ onToggleAdvanced }: { onToggleAdvanced?:
                     <ResponsiveContainer width="100%" height={300}>
                       <AreaChart
                         data={chartData}
-                        margin={{ top: 20, right: 25, left: 15, bottom: 10 }}
+                        margin={{ top: 20, right: 25, left: 15, bottom: 20 }}
                       >
                         <defs>
                           <linearGradient id="colorSalesPremium" x1="0" y1="0" x2="0" y2="1">

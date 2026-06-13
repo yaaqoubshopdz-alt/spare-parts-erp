@@ -343,7 +343,8 @@ export default function ProductModal({ isOpen, onClose, onSaved, productId }: Pr
                           showError('يرجى كتابة اسم القطعة أو كودها أولاً');
                           return;
                         }
-                        const query = encodeURIComponent(`What car models and years are compatible with auto part: ${formData.barcode} ${formData.name}?`);
+                        const promptText = `ماهي السيارات المتوافقة مع قطعة الغيار: ${formData.barcode || ''} ${formData.name} وما هي أرقام OEM والبدائل المتطابقة معها في السوق الجزائري؟`;
+                        const query = encodeURIComponent(promptText);
                         window.electronAPI.invoke('shell:openExternal', `https://www.google.com/search?q=${query}`);
                       }}
                       className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 bg-blue-500/10 px-2 py-1 rounded-md transition-all"
@@ -533,7 +534,7 @@ export default function ProductModal({ isOpen, onClose, onSaved, productId }: Pr
                  <h3 className="text-sm font-bold text-primary_blue flex items-center gap-2">
                     <Car size={18} className="text-primary_blue"/> توافقات المركبات
                  </h3>
-                 <CreatableFitmentTags value={fitments} onChange={setFitments} />
+                 <CreatableFitmentTags value={fitments} onChange={setFitments} productName={formData.name} />
               </div>
 
             </form>

@@ -26,7 +26,9 @@ export default function SalesPage() {
   const limit = 99999;
 
   // Draft mode toggle
-  const [isDraftMode, setIsDraftMode] = useState(false);
+  const [isDraftMode, setIsDraftMode] = useState(() => {
+    return window.location.hash.includes('status=draft');
+  });
 
   // Delete confirmation modal
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
@@ -181,9 +183,9 @@ export default function SalesPage() {
         )}
       </AnimatePresence>
 
-      <div className="flex-1 bg-background_secondary border border-border_default rounded-2xl overflow-hidden flex flex-col">
+      <div className="flex-1 border border-black/[0.07] dark:border-white/[0.06] rounded-2xl overflow-hidden flex flex-col">
         {/* Single Row Toolbar: Search + Total + Drafts Toggle + Actions */}
-        <div className="flex items-center justify-between px-8 h-24 shrink-0 bg-background_primary shadow-sm border-b border-border_default/20">
+        <div className="flex items-center justify-between px-8 h-24 shrink-0 bg-white/30 dark:bg-black/30 backdrop-blur-xl border-b border-black/[0.07] dark:border-white/[0.07]">
           <div className="relative flex-1 max-w-[600px]">
             <Search size={22} className="absolute right-4 top-1/2 -translate-y-1/2 text-primary_blue/60" />
             <input
@@ -243,89 +245,100 @@ export default function SalesPage() {
         {/* Table */}
         <div className="overflow-y-scroll flex-1 custom-scrollbar">
           <table className="w-full text-sm text-right border-collapse">
-            <thead className="sticky top-0 z-30 bg-gradient-to-b from-table_header_from to-table_header_to border-b border-black/30 dark:border-border_default shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative">
+            <thead className="sticky top-0 z-30 bg-gradient-to-b from-table_header_from to-table_header_to border-b border-black/30 dark:border-b-border_custom/3 shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative">
               <tr className="h-[52px]">
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('invoice_number')}>
+                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-l-border_custom/3 cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('invoice_number')}>
                   رقم الفاتورة{sortKey === 'invoice_number' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'invoice_number' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
                 </th>
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('date')}>
+                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-l-border_custom/3 cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('date')}>
                   التاريخ والوقت{sortKey === 'date' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'date' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
                 </th>
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('customer_name')}>
+                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-l-border_custom/3 cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('customer_name')}>
                   الزبون{sortKey === 'customer_name' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'customer_name' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
                 </th>
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default text-center cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('total')}>
+                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-l-border_custom/3 text-center cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('total')}>
                   الإجمالي{sortKey === 'total' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'total' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
                 </th>
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default text-center cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('paid')}>
+                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-l-border_custom/3 text-center cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('paid')}>
                   المدفوع{sortKey === 'paid' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'paid' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
                 </th>
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default text-center select-none">المتبقي</th>
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default text-center select-none">حالة الدفع</th>
+                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-l-border_custom/3 text-center select-none">المتبقي</th>
+                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-l-border_custom/3 text-center select-none">حالة الدفع</th>
                 {isDraftMode && (
                   <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide text-center select-none w-16">حذف</th>
                 )}
               </tr>
             </thead>
-            <tbody className="divide-y divide-border_default">
+            <tbody className="divide-y divide-border_default dark:divide-border_custom/3">
               {loading ? (
                 <tr className="h-11"><td colSpan={isDraftMode ? 8 : 7} className="px-4 py-8 text-center text-text_muted bg-background_secondary">جاري التحميل...</td></tr>
-              ) : invoices.length === 0 ? (
-                <tr className="h-11"><td colSpan={isDraftMode ? 8 : 7} className="px-4 py-8 text-center text-text_muted bg-background_secondary">
-                  {isDraftMode ? 'لا توجد مسودات' : 'لا توجد فواتير'}
-                </td></tr>
               ) : (
                 <>
-                  {invoices.map((inv, idx) => (
-                    <tr key={inv.id} className={`h-11 hover:bg-primary_blue/5 transition-colors group cursor-pointer ${idx % 2 === 0 ? 'bg-background_secondary' : 'bg-sidebar_bg'}`}
-                      onClick={() => {
-                        showNav(inv.status === 'draft' ? 'إكمال المسودة' : 'عرض الفاتورة');
-                        navigate('/pos?invoiceId=' + inv.id);
-                      }}
-                    >
-                      <td className="px-3 py-2 font-numbers text-primary_blue font-medium border-l border-border_default">{inv.invoice_number}</td>
-                      <td className="px-3 py-2 font-bold font-numbers text-text_secondary border-l border-border_default">{inv.date} {inv.time}</td>
-                      <td className="px-3 py-2 font-bold text-text_primary border-l border-border_default">{inv.customer_name || 'زبون عام'}</td>
-                      <td className="px-3 py-2 font-numbers text-center font-bold text-text_primary border-l border-border_default">
-                        {inv.total.toFixed(2)} د.ج
+                  {invoices.length === 0 ? (
+                    <tr className="h-11 bg-background_secondary">
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
+                      <td className="px-3 py-2 font-bold text-center text-text_muted border-l border-border_default dark:border-l-border_custom/3" dir="auto">
+                        {isDraftMode ? 'لا توجد مسودات' : 'لا توجد فواتير'}
                       </td>
-                      <td className="px-3 py-2 font-bold font-numbers text-center text-success_green border-l border-border_default">
-                        {(inv.paid || 0).toFixed(2)} د.ج
-                      </td>
-                      <td className={`px-3 py-2 font-numbers text-center font-bold border-l border-border_default ${(inv.total - (inv.paid || 0)) > 0 ? 'text-orange-500' : 'text-success_green'}`}>
-                        {(inv.total - (inv.paid || 0)).toFixed(2)} د.ج
-                      </td>
-                      <td className="px-3 py-2 text-center border-l border-border_default">
-                        {inv.status === 'draft' ? (
-                          <span className="text-warning_amber text-xs font-bold bg-warning_amber/10 px-2 py-1 rounded flex items-center justify-center gap-1"><FileText size={12} />مسودة</span>
-                        ) : inv.paid >= inv.total ? (
-                          <span className="text-success_green text-xs font-bold bg-success_green/10 px-2 py-1 rounded">مدفوع</span>
-                        ) : inv.paid > 0 && inv.paid < inv.total ? (
-                          <span className="text-warning_amber text-xs font-bold bg-warning_amber/10 px-2 py-1 rounded">متبقي</span>
-                        ) : (
-                          <span className="text-danger_red text-xs font-bold bg-danger_red/10 px-2 py-1 rounded">غير مدفوع</span>
-                        )}
-                      </td>
-                      {isDraftMode && (
-                        <td className="px-2 py-2 text-center">
-                          <button onClick={(e) => { e.stopPropagation(); deleteDraft(inv.id); }}
-                            className="p-1.5 text-text_muted hover:text-danger_red hover:bg-danger_red/10 rounded-lg transition-all active:scale-90">
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      )}
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
+                      {isDraftMode && <td>&nbsp;</td>}
                     </tr>
-                  ))}
+                  ) : (
+                    invoices.map((inv, idx) => (
+                      <tr key={inv.id} className={`h-11 hover:bg-primary_blue/5 transition-colors group cursor-pointer ${idx % 2 === 0 ? 'bg-background_secondary' : 'bg-sidebar_bg'}`}
+                        onClick={() => {
+                          showNav(inv.status === 'draft' ? 'إكمال المسودة' : 'عرض الفاتورة');
+                          navigate('/pos?invoiceId=' + inv.id);
+                        }}
+                      >
+                        <td className="px-3 py-2 font-numbers text-primary_blue font-medium border-l border-border_default dark:border-l-border_custom/3">{inv.invoice_number}</td>
+                        <td className="px-3 py-2 font-bold font-numbers text-text_secondary border-l border-border_default dark:border-l-border_custom/3">{inv.date} {inv.time}</td>
+                        <td className="px-3 py-2 font-bold text-text_primary border-l border-border_default dark:border-l-border_custom/3">{inv.customer_name || 'زبون عام'}</td>
+                        <td className="px-3 py-2 font-numbers text-center font-bold text-text_primary border-l border-border_default dark:border-l-border_custom/3">
+                          {inv.total.toFixed(2)} د.ج
+                        </td>
+                        <td className="px-3 py-2 font-bold font-numbers text-center text-success_green border-l border-border_default dark:border-l-border_custom/3">
+                          {(inv.paid || 0).toFixed(2)} د.ج
+                        </td>
+                        <td className={`px-3 py-2 font-numbers text-center font-bold border-l border-border_default dark:border-l-border_custom/3 ${(inv.total - (inv.paid || 0)) > 0 ? 'text-orange-500' : 'text-success_green'}`}>
+                          {(inv.total - (inv.paid || 0)).toFixed(2)} د.ج
+                        </td>
+                        <td className="px-3 py-2 text-center border-l border-border_default dark:border-l-border_custom/3">
+                          {inv.status === 'draft' ? (
+                            <span className="text-warning_amber text-xs font-bold bg-warning_amber/10 px-2 py-1 rounded flex items-center justify-center gap-1"><FileText size={12} />مسودة</span>
+                          ) : inv.paid >= inv.total ? (
+                            <span className="text-success_green text-xs font-bold bg-success_green/10 px-2 py-1 rounded">مدفوع</span>
+                          ) : inv.paid > 0 && inv.paid < inv.total ? (
+                            <span className="text-warning_amber text-xs font-bold bg-warning_amber/10 px-2 py-1 rounded">متبقي</span>
+                          ) : (
+                            <span className="text-danger_red text-xs font-bold bg-danger_red/10 px-2 py-1 rounded">غير مدفوع</span>
+                          )}
+                        </td>
+                        {isDraftMode && (
+                          <td className="px-2 py-2 text-center">
+                            <button onClick={(e) => { e.stopPropagation(); deleteDraft(inv.id); }}
+                              className="p-1.5 text-text_muted hover:text-danger_red hover:bg-danger_red/10 rounded-lg transition-all active:scale-90">
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
                   {/* Ghost Rows — داخل نفس <tbody> لتطابق خطوط الأعمدة */}
-                  {Array.from({ length: Math.max(0, 18 - invoices.length) }).map((_, idx) => (
-                    <tr key={`ghost-${idx}`} className={`h-11 pointer-events-none ${(invoices.length + idx) % 2 === 0 ? 'bg-background_secondary' : 'bg-sidebar_bg'}`}>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      <td className="border-l border-border_default">&nbsp;</td>
+                  {Array.from({ length: Math.max(0, 18 - (invoices.length === 0 ? 1 : invoices.length)) }).map((_, idx) => (
+                    <tr key={`ghost-${idx}`} className={`h-11 pointer-events-none ${((invoices.length === 0 ? 1 : invoices.length) + idx) % 2 === 0 ? 'bg-background_secondary' : 'bg-sidebar_bg'}`}>
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
+                      <td className="border-l border-border_default dark:border-l-border_custom/3">&nbsp;</td>
                       {isDraftMode && <td>&nbsp;</td>}
                     </tr>
                   ))}

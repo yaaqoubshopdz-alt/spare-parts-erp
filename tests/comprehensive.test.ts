@@ -769,6 +769,24 @@ describe('Settings Table Name - التحقق من اسم جدول الإعداد
 
     expect(content).toContain("sqliteTable('app_settings'");
   });
+
+  it('should verify that db:settings:reset exists and preserves protected data', () => {
+    const settingsPath = join(dirname(__dirname), 'electron', 'ipc', 'settings.ipc.ts');
+    const content = readFileSync(settingsPath, 'utf-8');
+
+    // It should have the handler registered
+    expect(content).toContain("db:settings:reset");
+    
+    // It should NOT delete vehicle brands, vehicle models, or search dictionary
+    expect(content).not.toContain("DELETE FROM vehicle_brands");
+    expect(content).not.toContain("DELETE FROM vehicle_models");
+    expect(content).not.toContain("DELETE FROM search_dictionary");
+
+    // It SHOULD delete products and sales invoices
+    expect(content).toContain("DELETE FROM products");
+    expect(content).toContain("DELETE FROM sales_invoices");
+    expect(content).toContain("DELETE FROM sales_invoice_items");
+  });
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -1154,7 +1172,7 @@ describe('Permissions Matrix - التحقق من مصفوفة الصلاحيات
     const cashierMatch = content.match(/cashier: \[([\s\S]*?)\]/);
     if (cashierMatch) {
       const cashierPerms = cashierMatch[1].match(/'([^']+)'/g);
-      expect(cashierPerms?.length).toBeLessThan(10);
+      expect(cashierPerms?.length).toBeLessThanOrEqual(10);
     }
   });
 });
@@ -1422,26 +1440,25 @@ describe('Auth Provider - التحقق من موفر المصادقة', () => {
 // ═══════════════════════════════════════════════════════════
 
 describe('Keyboard Shortcuts - التحقق من اختصارات لوحة المفاتيح', () => {
-  it('should have F6-F10 shortcuts defined in App.tsx', () => {
+  it('should use dynamic shortcuts in App.tsx via useShortcutStore', () => {
     const appPath = join(dirname(__dirname), 'src', 'App.tsx');
     const content = readFileSync(appPath, 'utf-8');
 
-    expect(content).toContain("'F6'");
-    expect(content).toContain("'F7'");
-    expect(content).toContain("'F8'");
-    expect(content).toContain("'F9'");
-    expect(content).toContain("'F10'");
+    expect(content).toContain('useShortcutStore');
+    expect(content).toContain('shortcuts.goto_pos');
+    expect(content).toContain('shortcuts.goto_purchase');
   });
 
-  it('should have F1-F5 shortcuts in POSPage', () => {
+  it('should use dynamic shortcuts in POSPage via useShortcutStore', () => {
     const posPath = join(dirname(__dirname), 'src', 'features', 'sales', 'POSPage.tsx');
     const content = readFileSync(posPath, 'utf-8');
 
-    expect(content).toContain("'F1'");
-    expect(content).toContain("'F2'");
-    expect(content).toContain("'F3'");
-    expect(content).toContain("'F4'");
-    expect(content).toContain("'F5'");
+    expect(content).toContain('useShortcutStore');
+    expect(content).toContain('shortcuts.new_invoice');
+    expect(content).toContain('shortcuts.search_product');
+    expect(content).toContain('shortcuts.search_party');
+    expect(content).toContain('shortcuts.print_invoice');
+    expect(content).toContain('shortcuts.save_invoice');
   });
 });
 

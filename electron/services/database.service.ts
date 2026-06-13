@@ -282,7 +282,7 @@ export const DatabaseService = {
         paid REAL NOT NULL DEFAULT 0,
         remaining REAL NOT NULL DEFAULT 0,
         payment_method TEXT DEFAULT 'cash',
-        status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed','cancelled')),
+        status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed','cancelled','draft')),
         notes TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -323,7 +323,7 @@ export const DatabaseService = {
         paid REAL NOT NULL DEFAULT 0,
         remaining REAL NOT NULL DEFAULT 0,
         payment_method TEXT DEFAULT 'cash',
-        status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed','cancelled')),
+        status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed','cancelled','draft')),
         notes TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -702,6 +702,32 @@ export const DatabaseService = {
 
       CREATE INDEX IF NOT EXISTS idx_search_usage_term ON search_usage(search_term);
       CREATE INDEX IF NOT EXISTS idx_product_usage_prod ON product_usage(product_id);
+
+      -- Mobile Assistant Tables
+      CREATE TABLE IF NOT EXISTS product_images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        thumbnail BLOB,
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS photo_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'received', 'cancelled')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        received_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS invoice_captures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path TEXT NOT NULL,
+        prompt_used TEXT,
+        status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new', 'processed')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
     `);
 
     console.log('[DatabaseService] All tables created');
@@ -765,7 +791,7 @@ export const DatabaseService = {
       insertSeq.run('JRN', 0, '{PREFIX}-{DATE}-{SEQ}'); // Journal Entry Sequence
 
       // 7. App Settings
-      const insertSetting = raw.prepare(`INSERT INTO app_settings (key, value, type, description) VALUES (?, ?, ?, ?)`);
+      const insertSetting = raw.prepare(`INSERT OR IGNORE INTO app_settings (key, value, type, description) VALUES (?, ?, ?, ?)`);
       insertSetting.run('company_name', 'SparePartsERP', 'string', 'اسم الشركة');
       insertSetting.run('company_phone', '', 'string', 'هاتف الشركة');
       insertSetting.run('company_address', '', 'string', 'عنوان الشركة');
@@ -776,6 +802,7 @@ export const DatabaseService = {
       insertSetting.run('currency', 'د.ج', 'string', 'العملة');
       insertSetting.run('app_language', 'ar', 'string', 'لغة التطبيق');
       insertSetting.run('accounting_closing_date', '2000-01-01', 'string', 'تاريخ الإقفال المالي (لا يمكن الإضافة أو التعديل قبله)');
+      insertSetting.run('allow_negative_stock', 'false', 'boolean', 'السماح بالبيع بالسالب (البيع بالنقص)');
 
       // 8. Chart of Accounts (شجرة الحسابات الأساسية)
       const insertAccount = raw.prepare(`INSERT INTO accounts (code, name, type, parent_id) VALUES (?, ?, ?, ?)`);
@@ -1289,9 +1316,14 @@ export const DatabaseService = {
       raw.exec(`DROP TRIGGER IF EXISTS prevent_confirmed_sales_update`);
       raw.exec(`DROP TRIGGER IF EXISTS prevent_confirmed_purchases_update`);
       
+      // Drop old delete triggers to recreate them with the draft bypass rule
+      raw.exec(`DROP TRIGGER IF EXISTS prevent_sales_delete`);
+      raw.exec(`DROP TRIGGER IF EXISTS prevent_purchases_delete`);
+      
       raw.exec(`
         CREATE TRIGGER IF NOT EXISTS prevent_sales_delete
         BEFORE DELETE ON sales_invoices
+        FOR EACH ROW WHEN OLD.status != 'draft'
         BEGIN
           SELECT RAISE(ABORT, 'لا يمكن حذف فواتير المبيعات. يجب إلغاؤها.');
         END;
@@ -1300,6 +1332,7 @@ export const DatabaseService = {
       raw.exec(`
         CREATE TRIGGER IF NOT EXISTS prevent_purchases_delete
         BEFORE DELETE ON purchase_invoices
+        FOR EACH ROW WHEN OLD.status != 'draft'
         BEGIN
           SELECT RAISE(ABORT, 'لا يمكن حذف فواتير المشتريات. يجب إلغاؤها.');
         END;
@@ -1319,6 +1352,13 @@ export const DatabaseService = {
       if (!closingSetting) {
         raw.prepare(`INSERT INTO app_settings (key, value, type, description, updated_at) VALUES ('accounting_closing_date', '2000-01-01', 'string', 'تاريخ الإقفال المالي', datetime('now'))`).run();
         console.log('[DatabaseService] Migrated: added accounting_closing_date setting');
+      }
+
+      // Ensure allow_negative_stock setting exists
+      const negativeStockSetting: any = raw.prepare(`SELECT id FROM app_settings WHERE key = 'allow_negative_stock'`).get();
+      if (!negativeStockSetting) {
+        raw.prepare(`INSERT INTO app_settings (key, value, type, description, updated_at) VALUES ('allow_negative_stock', 'false', 'boolean', 'السماح بالبيع بالسالب (البيع بالنقص)', datetime('now'))`).run();
+        console.log('[DatabaseService] Migrated: added allow_negative_stock setting');
       }
 
       // Performance indexes for accounting queries
@@ -1438,6 +1478,144 @@ export const DatabaseService = {
     } catch (e) {
       console.error('[DatabaseService] Users migration failed:', e);
     }
+
+    // ── Invoice Status Drafts Migration ──
+    try {
+      const raw = this.getRawDb();
+      
+      // 1. Migrate sales_invoices
+      const salesSchema = raw.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sales_invoices'").get() as { sql: string } | undefined;
+      if (salesSchema && !salesSchema.sql.includes("'draft'")) {
+        console.log('[DatabaseService] Migrating sales_invoices: allowing status = "draft"...');
+        
+        raw.exec('PRAGMA foreign_keys = OFF;');
+        
+        // Drop delete trigger before renaming/dropping
+        raw.exec('DROP TRIGGER IF EXISTS prevent_sales_delete;');
+        
+        raw.exec(`
+          ALTER TABLE sales_invoices RENAME TO sales_invoices_old;
+          
+          CREATE TABLE sales_invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT UNIQUE,
+            invoice_number TEXT NOT NULL UNIQUE,
+            sale_type TEXT NOT NULL DEFAULT 'retail' CHECK(sale_type IN ('retail','wholesale')),
+            customer_id INTEGER,
+            user_id INTEGER REFERENCES users(id),
+            date TEXT NOT NULL,
+            time TEXT,
+            subtotal REAL NOT NULL DEFAULT 0,
+            global_discount_type TEXT DEFAULT 'percent',
+            global_discount_value REAL DEFAULT 0,
+            global_discount_amount REAL DEFAULT 0,
+            total_before_tax REAL DEFAULT 0,
+            tax_percent REAL DEFAULT 0,
+            tax_amount REAL DEFAULT 0,
+            total REAL NOT NULL DEFAULT 0,
+            paid REAL NOT NULL DEFAULT 0,
+            remaining REAL NOT NULL DEFAULT 0,
+            payment_method TEXT DEFAULT 'cash',
+            status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed','cancelled','draft')),
+            notes TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          );
+          
+          INSERT INTO sales_invoices (
+            id, session_id, invoice_number, sale_type, customer_id, user_id, date, time, 
+            subtotal, global_discount_type, global_discount_value, global_discount_amount, 
+            total_before_tax, tax_percent, tax_amount, total, paid, remaining, 
+            payment_method, status, notes, created_at, updated_at
+          )
+          SELECT 
+            id, session_id, invoice_number, sale_type, customer_id, user_id, date, time, 
+            subtotal, global_discount_type, global_discount_value, global_discount_amount, 
+            total_before_tax, tax_percent, tax_amount, total, paid, remaining, 
+            payment_method, status, notes, created_at, updated_at
+          FROM sales_invoices_old;
+          
+          DROP TABLE sales_invoices_old;
+        `);
+        
+        // Re-create delete trigger
+        raw.exec(`
+          CREATE TRIGGER IF NOT EXISTS prevent_sales_delete
+          BEFORE DELETE ON sales_invoices
+          FOR EACH ROW WHEN OLD.status != 'draft'
+          BEGIN
+            SELECT RAISE(ABORT, 'لا يمكن حذف فواتير المبيعات. يجب إلغاؤها.');
+          END;
+        `);
+        
+        raw.exec('PRAGMA foreign_keys = ON;');
+        console.log('[DatabaseService] ✅ sales_invoices migrated successfully to support drafts');
+      }
+
+      // 2. Migrate purchase_invoices
+      const purchaseSchema = raw.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='purchase_invoices'").get() as { sql: string } | undefined;
+      if (purchaseSchema && !purchaseSchema.sql.includes("'draft'")) {
+        console.log('[DatabaseService] Migrating purchase_invoices: allowing status = "draft"...');
+        
+        raw.exec('PRAGMA foreign_keys = OFF;');
+        
+        // Drop delete trigger before renaming/dropping
+        raw.exec('DROP TRIGGER IF EXISTS prevent_purchases_delete;');
+        
+        raw.exec(`
+          ALTER TABLE purchase_invoices RENAME TO purchase_invoices_old;
+          
+          CREATE TABLE purchase_invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT UNIQUE,
+            invoice_number TEXT NOT NULL UNIQUE,
+            supplier_invoice_number TEXT,
+            supplier_id INTEGER,
+            user_id INTEGER REFERENCES users(id),
+            date TEXT NOT NULL,
+            subtotal REAL NOT NULL DEFAULT 0,
+            discount_amount REAL DEFAULT 0,
+            tax_amount REAL DEFAULT 0,
+            total REAL NOT NULL DEFAULT 0,
+            paid REAL NOT NULL DEFAULT 0,
+            remaining REAL NOT NULL DEFAULT 0,
+            payment_method TEXT DEFAULT 'cash',
+            status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed','cancelled','draft')),
+            notes TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          );
+          
+          INSERT INTO purchase_invoices (
+            id, session_id, invoice_number, supplier_invoice_number, supplier_id, user_id, 
+            date, subtotal, discount_amount, tax_amount, total, paid, remaining, 
+            payment_method, status, notes, created_at, updated_at
+          )
+          SELECT 
+            id, session_id, invoice_number, supplier_invoice_number, supplier_id, user_id, 
+            date, subtotal, discount_amount, tax_amount, total, paid, remaining, 
+            payment_method, status, notes, created_at, updated_at
+          FROM purchase_invoices_old;
+          
+          DROP TABLE purchase_invoices_old;
+        `);
+        
+        // Re-create delete trigger
+        raw.exec(`
+          CREATE TRIGGER IF NOT EXISTS prevent_purchases_delete
+          BEFORE DELETE ON purchase_invoices
+          FOR EACH ROW WHEN OLD.status != 'draft'
+          BEGIN
+            SELECT RAISE(ABORT, 'لا يمكن حذف فواتير المشتريات. يجب إلغاؤها.');
+          END;
+        `);
+        
+        raw.exec('PRAGMA foreign_keys = ON;');
+        console.log('[DatabaseService] ✅ purchase_invoices migrated successfully to support drafts');
+      }
+    } catch (e) {
+      console.error('[DatabaseService] Invoice draft migration failed:', e);
+    }
   },
 
   /**
@@ -1451,7 +1629,7 @@ export const DatabaseService = {
       
       // 1. Get base product info
       const product = raw.prepare(`
-        SELECT p.id, p.name, p.name_fr, c.name as category_name, c.name_fr as category_name_fr, b.name as brand_name
+        SELECT p.id, p.name, p.name_fr, p.barcode, p.internal_code, c.name as category_name, c.name_fr as category_name_fr, b.name as brand_name
         FROM products p
         LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN brands b ON b.id = p.brand_id
@@ -1530,6 +1708,20 @@ export const DatabaseService = {
       addWords(product.category_name);
       addWords(product.category_name_fr);
       addWords(product.brand_name);
+      
+      // Add barcodes to search index compiled terms
+      addWords(product.barcode);
+      addWords(product.internal_code);
+      try {
+        const altBarcodes = raw.prepare('SELECT barcode FROM product_barcodes WHERE product_id = ?').all(productId) as any[];
+        if (altBarcodes && altBarcodes.length > 0) {
+          for (const alt of altBarcodes) {
+            addWords(alt.barcode);
+          }
+        }
+      } catch (err) {
+        console.error('[DatabaseService] Error fetching alt barcodes for search compiling:', err);
+      }
       
       // Add fitment vehicles
       for (const f of fitments) {

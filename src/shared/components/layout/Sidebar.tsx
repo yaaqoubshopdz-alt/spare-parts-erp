@@ -13,7 +13,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Home, ShoppingCart, ShoppingBag, Package,
   Users, UserCheck, Landmark, Settings, LogOut,
-  Wrench, Sun, Moon, AlertTriangle, KeyRound
+  Wrench, Sun, Moon, AlertTriangle, KeyRound,
+  Receipt
 } from 'lucide-react';
 import { useAppStore } from '../../../store/app.store';
 import AccountModal from '../../../features/auth/AccountModal';
@@ -39,7 +40,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'low-stock', labelAr: 'مخزون منخفض', labelFr: 'Stock Faible', icon: AlertTriangle, route: '/low-stock', permission: 'view_inventory' },
   { id: 'customers', labelAr: 'الزبائن', labelFr: 'Clients', icon: Users, route: '/customers', permission: 'view_customers' },
   { id: 'suppliers', labelAr: 'الموردون', labelFr: 'Fournisseurs', icon: UserCheck, route: '/suppliers', permission: 'view_suppliers' },
-  { id: 'expenses', labelAr: 'المصاريف', labelFr: 'Dépenses', icon: Landmark, route: '/expenses', permission: 'view_cashbox' },
+  { id: 'expenses', labelAr: 'المصاريف', labelFr: 'Dépenses', icon: Receipt, route: '/expenses', permission: 'view_cashbox' },
   { id: 'accounting', labelAr: 'المحاسبة المتقدمة', labelFr: 'Comptabilité', icon: Landmark, route: '/accounting', permission: 'view_reports' },
   { id: 'settings', labelAr: 'الإعدادات', labelFr: 'Paramètres', icon: Settings, route: '/settings', permission: 'view_settings' },
   { id: 'switch_user', labelAr: 'تبديل المستخدم', labelFr: 'Changer d\'utilisateur', icon: KeyRound, position: 'bottom' },
@@ -361,8 +362,8 @@ export default function Sidebar() {
         setHoveredIndex(null);
         setActiveTooltip(null);
       }}
-      className={`sidebar flex h-full flex-col bg-sidebar_bg py-6 z-50 relative transition-all duration-500 ease-in-out ltr:border-r rtl:border-l overflow-y-auto custom-scrollbar select-none overflow-visible ltr:border-slate-200/80 rtl:border-slate-200/80 dark:ltr:border-border_default/30 dark:rtl:border-border_default/30 shadow-[4px_0_20px_rgba(0,0,0,0.03)] rtl:shadow-[-4px_0_20px_rgba(0,0,0,0.03)] dark:shadow-none ${
-        isExpanded ? 'w-[280px] shadow-[6px_0_30px_rgba(0,0,0,0.055)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.55)]' : `w-0 ${collapsedWidthClass} overflow-hidden lg:overflow-visible`
+      className={`sidebar flex h-full flex-col bg-white/40 backdrop-blur-xl dark:bg-black/40 dark:backdrop-blur-xl py-6 z-50 relative transition-all duration-500 ease-in-out ltr:border-r rtl:border-l select-none overflow-visible ltr:border-black/[0.08] rtl:border-black/[0.08] dark:ltr:border-white/[0.07] dark:rtl:border-white/[0.07] shadow-[4px_0_20px_rgba(0,0,0,0.04)] rtl:shadow-[-4px_0_20px_rgba(0,0,0,0.04)] dark:shadow-[2px_0_24px_rgba(0,0,0,0.45)] ${
+        isExpanded ? 'w-[280px]' : `w-0 ${collapsedWidthClass} overflow-hidden lg:overflow-visible`
       }`}
     >
       {/* Logo as Profile Trigger */}

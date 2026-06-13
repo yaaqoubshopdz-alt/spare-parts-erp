@@ -48,3 +48,7 @@ export { accounts, costCenters, journalEntries, journalEntryLines } from './acco
 // NF_16: Inventory Count
 export { inventoryCountSessions, inventoryCountItems } from './inventory-count.schema';
 export { searchDictionary, productSearchIndex } from './search.schema';
+
+// Mobile Assistant
+export { productImages, photoRequests, invoiceCaptures } from './mobile.schema';
+

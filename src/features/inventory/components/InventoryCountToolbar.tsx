@@ -27,6 +27,10 @@ interface ToolbarProps {
   onApprove?: () => void;
   onCancel?: () => void;
   onStartNew?: () => void;
+  allColumns: any[];
+  toggleHide: (key: string) => void;
+  reorder: (from: number, to: number) => void;
+  reset: () => void;
 }
 
 export default function InventoryCountToolbar({
@@ -34,6 +38,7 @@ export default function InventoryCountToolbar({
   isCounting, isReviewing, isApproved, finishing, categories, selectedCategoryId, onCategoryChange,
   itemsStatusFilter, onStatusFilterChange, itemsZeroFilter, onZeroFilterChange,
   itemsSearch, onSearchChange, onFinish, onSummary, onClose, onApprove, onCancel, onStartNew,
+  allColumns, toggleHide, reorder, reset,
 }: ToolbarProps) {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -68,9 +73,9 @@ export default function InventoryCountToolbar({
   };
 
   return (
-    <div className="flex flex-col shrink-0 w-full border-b border-border_default bg-background_primary">
+    <div className="flex flex-col shrink-0 w-full bg-white/30 dark:bg-black/30 backdrop-blur-xl border-b border-black/[0.07] dark:border-white/[0.07] relative z-[50]">
       {/* ROW 1: Session info + date + duration + progress */}
-      <div className="h-[59px] px-5 flex items-center justify-between border-b border-border_default bg-transparent relative z-[60]">
+      <div className="h-[59px] px-5 flex items-center justify-between border-b border-black/[0.07] dark:border-white/[0.07] bg-transparent relative z-[60]">
         <div className="flex items-center gap-6 flex-1">
           <button
             type="button"
@@ -192,6 +197,8 @@ export default function InventoryCountToolbar({
                 </div>
               )}
             </div>
+
+
           </div>
         </div>
 

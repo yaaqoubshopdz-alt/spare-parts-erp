@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useReactToPrint } from 'react-to-print';
 import {
-  Search, Trash2, Printer, Save, CheckCircle, Plus,
-  User, FolderOpen, Calendar, XCircle, FileText, X, Package, EyeOff, Eye, Hash, Car, Edit2, Sparkles, Barcode
+  Search, Trash2, Printer, Save, CheckCircle, Plus, Copy,
+  User, FolderOpen, Calendar, XCircle, FileText, X, Package, EyeOff, Eye, Hash, Car, Edit2, Sparkles, Barcode, Image as ImageIcon
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { roundTo2 } from '../../utils/calculations';
@@ -13,6 +13,7 @@ import { PrintPreviewModal } from '../../shared/components/print/PrintPreviewMod
 import { PrintTemplateRenderer, DEFAULT_CONFIGS, generateInvoiceHTML, TemplateType, PrintConfig, PaperSize } from '../../shared/components/print/PrintTemplateRenderer';
 import AddProductModal from '../../features/inventory/AddProductModal';
 import BarcodePrintModal from '../../features/inventory/components/BarcodePrintModal';
+import ProductPhotoViewerModal from '../../features/inventory/ProductPhotoViewerModal';
 import AdvancedProductFinder from '../shared/AdvancedProductFinder';
 import FitmentsBadges from '../shared/FitmentsBadges';
 import GlassDropdown, { GlassDropdownItem } from '../../shared/components/ui/GlassDropdown';
@@ -20,7 +21,10 @@ import { AdminPinModal } from '../../shared/components/ui/AdminPinModal';
 import { playNotificationSound } from '../../shared/utils/sound';
 import { showAutoParkToast } from '../../shared/components/ui/AutoParkToast';
 import { showNotification } from '../../shared/utils/notifications';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import ColumnContextMenu from '../../shared/components/table/ColumnContextMenu';
+import { useSmoothScroll } from '../../shared/hooks/useSmoothScroll';
+
 
 interface PurchaseItem {
   id: string;
@@ -40,6 +44,13 @@ interface PurchaseItem {
   unit_id?: number;
   sort_order: number;
   inventory_check?: boolean;
+  isNewProduct?: boolean;
+  needs_review?: boolean;
+  brand_id?: number;
+  has_sub_unit?: boolean;
+  pieces_per_box?: number;
+  compatibility_suggestions?: any[];
+  product_is_active?: number;
 }
 
 interface ColumnDef {
@@ -119,6 +130,9 @@ function isFuzzyMatch(a: string, b: string): boolean {
 export default function PurchaseFormPage() {
   const { user } = useAuth();
   const { id } = useParams();
+  const navigate = useNavigate();
+  const dropdownScrollRef = useSmoothScroll<HTMLDivElement>();
+  const supplierDropdownScrollRef = useSmoothScroll<HTMLDivElement>();
 
   const [columns, setColumns] = useState<ColumnDef[]>(() => {
     const savedStr = localStorage.getItem('purchase_invoice_columns_layout_v8');
@@ -136,6 +150,37 @@ export default function PurchaseFormPage() {
       return INITIAL_COLUMNS;
     }
   });
+
+  const panelColumns = useMemo(() => {
+    return columns.map(c => ({
+      key: c.id,
+      label: c.label,
+      hidden: !!c.hidden,
+      width: c.width,
+      align: c.align
+    }));
+  }, [columns]);
+
+  const toggleHideColumn = useCallback((colId: string) => {
+    setColumns(prev => {
+      const visible = prev.filter(c => !c.hidden);
+      if (visible.length <= 1 && !prev.find(c => c.id === colId)?.hidden) return prev;
+      return prev.map(c => c.id === colId ? { ...c, hidden: !c.hidden } : c);
+    });
+  }, []);
+
+  const reorderColumns = useCallback((from: number, to: number) => {
+    setColumns(prev => {
+      const copy = [...prev];
+      const [removed] = copy.splice(from, 1);
+      copy.splice(to, 0, removed);
+      return copy;
+    });
+  }, []);
+
+  const resetColumns = useCallback(() => {
+    setColumns(INITIAL_COLUMNS);
+  }, []);
 
   const isSavedRef = useRef(false);
   const isSavingRef = useRef(false);
@@ -166,45 +211,230 @@ export default function PurchaseFormPage() {
     };
   }, []);
 
-  const [currentInvoiceId, setCurrentInvoiceId] = useState<number | null>(null);
-  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [currentInvoiceId, setCurrentInvoiceId] = useState<number | null>(() => {
+    if (id) return null;
+    try {
+      const saved = localStorage.getItem('purchase_form_draft_invoice_id');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+
+  const [invoiceStatus, setInvoiceStatus] = useState<'draft' | 'confirmed' | 'cancelled' | null>(() => {
+    if (id) return null;
+    try {
+      const saved = localStorage.getItem('purchase_form_draft_invoice_status');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+
+  const [invoiceNumber, setInvoiceNumber] = useState<string>(() => {
+    if (id) return '';
+    try {
+      const saved = localStorage.getItem('purchase_form_draft_invoice_number');
+      return saved || '';
+    } catch { return ''; }
+  });
   
   useEffect(() => {
-    if (!currentInvoiceId) {
+    if (!currentInvoiceId && !invoiceNumber) {
       setInvoiceNumber(`ACH-${Date.now().toString().slice(-8)}`);
     }
-  }, [currentInvoiceId]);
+  }, [currentInvoiceId, invoiceNumber]);
 
-  const [supplierId, setSupplierId] = useState<number | null>(null);
-  const [supplierName, setSupplierName] = useState('مورد عام');
-  const [supplierBalance, setSupplierBalance] = useState<number>(0);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit' | 'mixed'>('cash');
-  const [notes, setNotes] = useState('');
+  const [supplierId, setSupplierId] = useState<number | null>(() => {
+    if (id) return null;
+    try {
+      const saved = localStorage.getItem('purchase_form_draft_supplier_id');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+
+  const [supplierName, setSupplierName] = useState<string>(() => {
+    if (id) return 'مورد عام';
+    try {
+      const saved = localStorage.getItem('purchase_form_draft_supplier_name');
+      return saved || 'مورد عام';
+    } catch { return 'مورد عام'; }
+  });
+
+  const [supplierBalance, setSupplierBalance] = useState<number>(() => {
+    if (id) return 0;
+    try {
+      const saved = localStorage.getItem('purchase_form_draft_supplier_balance');
+      return saved ? JSON.parse(saved) : 0;
+    } catch { return 0; }
+  });
+
+  const [expectedInvoiceTotal, setExpectedInvoiceTotal] = useState<number | null>(null);
+
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit' | 'mixed'>(() => {
+    if (id) return 'cash';
+    try {
+      const saved = localStorage.getItem('purchase_form_draft_payment_method');
+      return (saved as any) || 'cash';
+    } catch { return 'cash'; }
+  });
+
+  const [notes, setNotes] = useState<string>(() => {
+    if (id) return '';
+    try {
+      const saved = localStorage.getItem('purchase_form_draft_notes');
+      return saved || '';
+    } catch { return ''; }
+  });
 
   // Items
-  const [items, setItems] = useState<PurchaseItem[]>([]);
-  const [paidAmount, setPaidAmount] = useState(0);
-  const [customDate, setCustomDate] = useState<string | null>(null);
+  const [items, setItems] = useState<PurchaseItem[]>(() => {
+    if (id) return [];
+    try {
+      const saved = localStorage.getItem('purchase_form_draft_items');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  const [paidAmount, setPaidAmount] = useState<number>(() => {
+    if (id) return 0;
+    try {
+      const saved = localStorage.getItem('purchase_form_draft_paid_amount');
+      return saved ? JSON.parse(saved) : 0;
+    } catch { return 0; }
+  });
+
+  const [customDate, setCustomDate] = useState<string | null>(() => {
+    if (id) return null;
+    try {
+      const saved = localStorage.getItem('purchase_form_draft_custom_date');
+      return saved || null;
+    } catch { return null; }
+  });
+
+  // ── Sync draft states to localStorage (only if not editing an existing invoice via URL param) ──
+  useEffect(() => {
+    if (!id) {
+      localStorage.setItem('purchase_form_draft_items', JSON.stringify(items));
+    }
+  }, [items, id]);
+
+  useEffect(() => {
+    if (!id) {
+      if (currentInvoiceId !== null) {
+        localStorage.setItem('purchase_form_draft_invoice_id', JSON.stringify(currentInvoiceId));
+      } else {
+        localStorage.removeItem('purchase_form_draft_invoice_id');
+      }
+    }
+  }, [currentInvoiceId, id]);
+
+  useEffect(() => {
+    if (!id) {
+      localStorage.setItem('purchase_form_draft_invoice_number', invoiceNumber);
+    }
+  }, [invoiceNumber, id]);
+
+  useEffect(() => {
+    if (!id) {
+      if (supplierId !== null) {
+        localStorage.setItem('purchase_form_draft_supplier_id', JSON.stringify(supplierId));
+      } else {
+        localStorage.removeItem('purchase_form_draft_supplier_id');
+      }
+    }
+  }, [supplierId, id]);
+
+  useEffect(() => {
+    if (!id) {
+      localStorage.setItem('purchase_form_draft_supplier_name', supplierName);
+    }
+  }, [supplierName, id]);
+
+  useEffect(() => {
+    if (!id) {
+      localStorage.setItem('purchase_form_draft_supplier_balance', JSON.stringify(supplierBalance));
+    }
+  }, [supplierBalance, id]);
+
+  useEffect(() => {
+    if (!id) {
+      localStorage.setItem('purchase_form_draft_payment_method', paymentMethod);
+    }
+  }, [paymentMethod, id]);
+
+  useEffect(() => {
+    if (!id) {
+      localStorage.setItem('purchase_form_draft_notes', notes);
+    }
+  }, [notes, id]);
+
+  useEffect(() => {
+    if (!id) {
+      localStorage.setItem('purchase_form_draft_paid_amount', JSON.stringify(paidAmount));
+    }
+  }, [paidAmount, id]);
+
+  useEffect(() => {
+    if (!id) {
+      if (customDate !== null) {
+        localStorage.setItem('purchase_form_draft_custom_date', customDate);
+      } else {
+        localStorage.removeItem('purchase_form_draft_custom_date');
+      }
+    }
+  }, [customDate, id]);
+
+  useEffect(() => {
+    if (!id) {
+      if (invoiceStatus !== null) {
+        localStorage.setItem('purchase_form_draft_invoice_status', JSON.stringify(invoiceStatus));
+      } else {
+        localStorage.removeItem('purchase_form_draft_invoice_status');
+      }
+    }
+  }, [invoiceStatus, id]);
   const [searchParams] = useSearchParams();
 
-  // Auto-add product from ?productId= query param (from Low Stock replenish)
+  // Auto-add product from ?productId= or ?barcode= query param (from Low Stock replenish or mobile barcode scan)
   const productIdParam = searchParams.get('productId');
-  const productAutoAddedRef = useRef(false);
+  const barcodeParam = searchParams.get('barcode');
+  const productAutoAddedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!productIdParam || currentInvoiceId || productAutoAddedRef.current) return;
-    productAutoAddedRef.current = true;
+    const activeParam = productIdParam || barcodeParam;
+    if (!activeParam || currentInvoiceId || productAutoAddedRef.current === activeParam) return;
+    productAutoAddedRef.current = activeParam;
 
     const autoAddProduct = async () => {
       try {
-        const res = await window.electronAPI.invoke('db:products:getById', Number(productIdParam));
-        if (res.success && res.data) {
+        let res;
+        if (productIdParam) {
+          res = await window.electronAPI.invoke('db:products:getById', Number(productIdParam));
+        } else if (barcodeParam) {
+          res = await window.electronAPI.invoke('db:products:getByBarcodeOrCode', barcodeParam);
+        }
+        if (res && res.success && res.data) {
           addProduct(res.data);
           showNotification('success', `تمت إضافة "${res.data.name}" للسلة`);
         }
       } catch { /* silent */ }
     };
     autoAddProduct();
-  }, [productIdParam]);
+  }, [productIdParam, barcodeParam, currentInvoiceId]);
+
+  // Auto-import invoice from mobile
+  const mobileImportParam = searchParams.get('mobileImport');
+  const hasTriggeredMobileImport = useRef(false);
+  useEffect(() => {
+    if (mobileImportParam === 'true' && !hasTriggeredMobileImport.current) {
+      hasTriggeredMobileImport.current = true;
+      const savedJson = localStorage.getItem('purchase_import_json_from_mobile');
+      if (savedJson) {
+        setImportJsonText(savedJson);
+        localStorage.removeItem('purchase_import_json_from_mobile');
+        setShowSmartImportModal(true);
+        setTimeout(() => {
+          handleAnalyzeJson(savedJson);
+        }, 300);
+      }
+    }
+  }, [mobileImportParam]);
 
   useEffect(() => {
     if (items.length === 0) {
@@ -260,9 +490,31 @@ export default function PurchaseFormPage() {
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, colId: string } | null>(null);
   const [editingProductId, setEditingProductId] = useState<number | null>(null);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const draggedColIndex = useRef<number | null>(null); 
 
+  // Mapping states for unmatched imported items
+  const [mappingRowId, setMappingRowId] = useState<string | null>(null);
+  const [rowSearchQuery, setRowSearchQuery] = useState("");
+  const [rowSearchResults, setRowSearchResults] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!mappingRowId || rowSearchQuery.length < 1) {
+      setRowSearchResults([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      const res: any = await window.electronAPI?.invoke('db:products:search', rowSearchQuery);
+      if (res?.success) {
+        setRowSearchResults(res.data);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [rowSearchQuery, mappingRowId]);
+
   const [rowContextMenu, setRowContextMenu] = useState<{ x: number; y: number; item: PurchaseItem } | null>(null);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [photoModalProduct, setPhotoModalProduct] = useState<{ id: number; name: string; barcode?: string } | null>(null);
 
   useEffect(() => {
     const close = () => setRowContextMenu(null);
@@ -286,6 +538,37 @@ export default function PurchaseFormPage() {
   const [showSmartImportModal, setShowSmartImportModal] = useState(false);
   const [importJsonText, setImportJsonText] = useState('');
   const [isReconciling, setIsReconciling] = useState(false);
+  const [invoiceQueue, setInvoiceQueue] = useState<any[]>([]);
+  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+
+  const loadInvoiceQueue = useCallback(async () => {
+    if (!window.electronAPI) return;
+    try {
+      const res = await window.electronAPI.invoke('mobile:get-invoice-queue');
+      if (res?.success) {
+        const queue = res.data || [];
+        setInvoiceQueue(queue);
+        // Automatically select the first invoice in the queue if none is selected,
+        // or if the previously selected invoice is no longer in the queue.
+        setSelectedInvoice((prev: any) => {
+          if (prev && queue.some((i: any) => i.id === prev.id)) {
+            return queue.find((i: any) => i.id === prev.id);
+          }
+          return queue.length > 0 ? queue[0] : null;
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load invoice queue:', err);
+    }
+  }, []);
+
+  // Handle openImport search param
+  useEffect(() => {
+    if (searchParams.get('openImport') === 'true') {
+      setShowSmartImportModal(true);
+      loadInvoiceQueue();
+    }
+  }, [searchParams, loadInvoiceQueue]);
 
   // ── Jard Mode States ──
   const [isJardMode, setIsJardMode] = useState(false);
@@ -313,7 +596,15 @@ export default function PurchaseFormPage() {
     window.electronAPI?.invoke('db:suppliers:getAll').then((res: any) => {
       if (res?.success) setSuppliers(res.data);
     });
-  }, []);
+    loadInvoiceQueue();
+
+    if (window.electronAPI) {
+      window.electronAPI.on('mobile:invoice-uploaded', loadInvoiceQueue);
+      return () => {
+        window.electronAPI?.removeAllListeners('mobile:invoice-uploaded');
+      };
+    }
+  }, [loadInvoiceQueue]);
 
   // Handle initializing focusedRowIndex when Jard Mode is toggled on
   useEffect(() => {
@@ -425,6 +716,7 @@ export default function PurchaseFormPage() {
         setNotes(inv.notes || '');
         setItems(inv.items || []);
         setIsCancelled(inv.status === 'cancelled');
+        setInvoiceStatus(inv.status);
         setCustomDate(inv.date || null);
         setShowOpenModal(false);
       }
@@ -433,39 +725,65 @@ export default function PurchaseFormPage() {
     }
   };
 
-  // Auto-load invoice from URL param (/purchases/:id)
+  // Auto-load invoice from URL param (/purchases/:id) or clear state if new
   useEffect(() => {
     if (id) {
       const numericId = parseInt(id, 10);
       if (!isNaN(numericId)) {
         handleOpenInvoice(numericId);
       }
+    } else {
+      setItems([]); 
+      setSupplierId(null); 
+      setSupplierName('مورد عام');
+      setSupplierBalance(0);
+      setInvoiceNumber(`ACH-${Date.now().toString().slice(-8)}`);
+      setCurrentInvoiceId(null);
+      setInvoiceStatus(null);
+      setPaidAmount(0); 
+      setNotes(''); 
+      setPaymentMethod('cash');
+      setIsCancelled(false);
+      setCustomDate(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   // ── Smart AI Import Helpers ──
-  const promptText = `Please analyze the attached invoice image carefully. Your task is to extract its details and output them strictly in JSON format. Do not include any explanation, code blocks (such as \`\`\`json ... \`\`\`), or markdown formatting. The output must be pure raw JSON matching the structure below.
+  const categoryNames = categories.map(c => c.name).join(', ');
+  const promptText = `Please analyze the attached invoice image carefully. Your task is to extract all the details and output them strictly in JSON format. Do not include any conversational explanation, prefaces, or markdown code block formatting (such as \`\`\`json ... \`\`\`). The output must be pure raw JSON conforming to the schema below.
 
 Here is the JSON schema to output:
 {
-  "supplier_name": "Name of the supplier/seller as written on the invoice (e.g. AMIR)",
+  "supplier_name": "Name of the supplier/seller as written on the invoice (e.g., 'SARL PIECES AUTO')",
   "supplier_phone": "Phone number(s) of the supplier if printed on the invoice, otherwise null",
   "supplier_address": "Address/Location of the supplier if printed on the invoice, otherwise null",
-  "invoice_number": "Invoice number or reference number as printed (e.g. BR 05108/2026)",
+  "invoice_number": "Invoice number or reference number as printed (e.g., 'BR 05108/2026')",
   "paid_amount": 85000.00, // The amount paid / Montant Versement as printed on the invoice, otherwise null
   "due_amount": 0.00, // The remaining balance / Reste à Payer as printed on the invoice, otherwise null
   "discount": 50.00, // Total discount or remise as printed on the invoice, otherwise null
   "items": [
     {
-      "name": "Full product name/description in French or English as printed (e.g. DURITE 1PC LONG)",
-      "name_ar_suggestion": "Translate the core spare part name into a clear, customer-friendly Arabic name for receipts (e.g. 'خرطوم طويل' for 'DURITE 1PC LONG', 'مصفاة زيت' for 'FILTRE A HUILE', 'منظف مكابح' for 'NETTOYANT FREIN', etc.), otherwise null if it cannot be translated accurately",
+      "index": 1,
+      "original_name": "Product name exactly as written in French or English on the invoice (e.g., 'FILTRE HUILE PEUGEOT 206')",
+      "translated_name_ar": "Translate the core spare part name into a clear, customer-friendly Arabic name for receipts (e.g., 'فلتر زيت بيجو 206'), otherwise null if it cannot be translated accurately",
       "sku": "Part number, OEM code, barcode, or reference code if visible, otherwise null (strict rule: do not invent values, do not put product name or category here, leave null if not found)",
       "qty": 10,
       "purchase_price": 350.00,
-      "category_suggestion": "The category classification suggested for this item in English (choose from: Filters, Brakes, Oils, Suspension, Electrical, Cooling, Engine, Clutch, Belts, Steering, Body, Transmission, Exhaust)",
+      "category_suggestion": "The category classification suggested for this item in Arabic. You MUST choose exactly from this list of categories: ${categoryNames || 'فلاتر, زيوت ومواد التشحيم, فرامل, كهرباء السيارة, محرك, تعليق وتوجيه, إطارات وعجلات, إكسسوارات'}",
+      "unit_suggestion": "The unit of measurement suggested (choose from: Piece, Litre, Box)",
+      "packaging": {
+        "is_box": false, // Set to true if the item name, description, or row indicates it is bought in bulk/box/carton (e.g., 'Carton 12', 'Box 24', 'Pack 6')
+        "box_size": 1, // If is_box is true, extract the number of pieces inside the box (e.g., 12 for 'Carton 12'). Otherwise, 1
+        "box_name": "Name of the packaging unit (e.g., 'Carton', 'Box', 'Pack') or null"
+      },
       "brand_suggestion": "Brand name suggestion of the spare part (e.g., Purflux, Brembo, Valeo, Bosch, Sachs, Monroe) if visible or inferred",
-      "compatibility_suggestions": ["List of compatible car models suggested (e.g., Peugeot 206, Clio 3, Symbol, Renault Kangoo) inferred from the part description"]
+      "compatibility_suggestions": [
+        {
+          "brand": "Brand name (e.g., Renault, Peugeot)",
+          "model": "Model name (e.g., Symbol, 208)"
+        }
+      ], // List of compatible car models. If a general brand like DFM, DFSK, Chana, Gonow, or Hafei is written on the invoice, use your knowledge of the Algerian mini-truck market to list the specific models it is compatible with, such as: 'DFSK K01', 'DFSK V21', 'DFM K01', 'DFM Star', 'Chana Star', 'Hafei Ruiyi', 'Chery Yoki' instead of just the brand name.
+      "needs_review": false // Set to true if the item description is blurry/illegible, prices are ambiguous, or you are highly uncertain about its details
     }
   ]
 }
@@ -474,26 +792,78 @@ Strict Rules:
 1. Output ONLY a valid JSON object. Do not wrap it in markdown code blocks.
 2. If buying price or quantity is missing, use 0 for price and 1 for quantity.
 3. If no barcode, OEM reference, or SKU is found on the row, set "sku" to null.
-4. Extract the product names exactly as written in French, preserving all letters, numbers, and specifications.`;
+4. Extract the product names exactly as written in French, preserving all letters, numbers, and specifications.
+5. Pay close attention to packaging keywords (Carton, Box, Pack, Lot) to extract packaging information accurately. If unsure, set "needs_review" to true.`;
 
   const handleCopyPrompt = () => {
     navigator.clipboard.writeText(promptText);
     showNotification('success', 'تم نسخ برومبت التحليل الذكي للحافظة!');
   };
 
-  const handleAnalyzeJson = async () => {
-    if (!importJsonText.trim()) {
+  const handleCopyImage = async () => {
+    if (!selectedInvoice) return;
+    try {
+      const imgUrl = `http://localhost:8766/invoices/${selectedInvoice.filePath}`;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = async () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Could not get 2d context');
+          ctx.drawImage(img, 0, 0);
+          canvas.toBlob(async (blob) => {
+            if (!blob) throw new Error('Blob creation failed');
+            try {
+              await navigator.clipboard.write([
+                new ClipboardItem({
+                  'image/png': blob
+                })
+              ]);
+              showNotification('success', 'تم نسخ الصورة للحافظة بنجاح! يمكنك لصقها الآن في Gemini أو ChatGPT.');
+            } catch (err: any) {
+              console.error('Clipboard write error:', err);
+              showNotification('error', 'فشل نسخ الصورة للحافظة. يمكنك حفظها يدوياً.');
+            }
+          }, 'image/png');
+        } catch (err) {
+          console.error('Canvas convert error:', err);
+          showNotification('error', 'فشل معالجة الصورة للنسخ');
+        }
+      };
+      img.onerror = () => {
+        showNotification('error', 'فشل تحميل الصورة للنسخ');
+      };
+      img.src = imgUrl;
+    } catch (err) {
+      console.error('Error fetching image:', err);
+      showNotification('error', 'حدث خطأ أثناء نسخ الصورة');
+    }
+  };
+
+  const handleAnalyzeJson = async (overrideJson?: string) => {
+    const textToAnalyze = overrideJson || importJsonText;
+    if (!textToAnalyze.trim()) {
       showNotification('error', 'الرجاء لصق كود الـ JSON أولاً');
       return;
     }
     setIsReconciling(true);
     try {
-      let cleanedJson = importJsonText.trim();
-      if (cleanedJson.startsWith('```')) {
+      let cleanedJson = textToAnalyze.trim();
+      if (cleanedJson.includes('```')) {
         const matches = cleanedJson.match(/```(?:json)?([\s\S]+?)```/);
         if (matches && matches[1]) {
           cleanedJson = matches[1].trim();
         }
+      }
+      
+      // Extract from the first '{' to the last '}' to strip any external text
+      const firstBrace = cleanedJson.indexOf('{');
+      const lastBrace = cleanedJson.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        cleanedJson = cleanedJson.substring(firstBrace, lastBrace + 1);
       }
       
       const parsed = JSON.parse(cleanedJson);
@@ -581,14 +951,28 @@ Strict Rules:
       // Update invoice number directly on main page
       if (parsed.invoice_number) {
         setInvoiceNumber(parsed.invoice_number);
+      } else if (parsed.invoice && parsed.invoice.number) {
+        setInvoiceNumber(parsed.invoice.number);
       }
 
+      // Set expected invoice total with safe fallback
+      let expTotal: number | null = null;
+      if (parsed.invoice && parsed.invoice.total !== undefined) {
+        expTotal = Number(parsed.invoice.total);
+      } else if (parsed.total !== undefined) {
+        expTotal = Number(parsed.total);
+      } else if (parsed.total_amount !== undefined) {
+        expTotal = Number(parsed.total_amount);
+      }
+      setExpectedInvoiceTotal(expTotal);
+
       // Compute total of imported items
-      const totalImported = parsed.items.reduce((acc: number, i: any) => acc + ((i.qty || 1) * (i.purchase_price || 0)), 0);
+      const totalImported = parsed.items.reduce((acc: number, i: any) => acc + ((i.qty || i.quantity || 1) * (i.purchase_price || i.unit_price || 0)), 0);
 
       // Update paid amount and payment method
-      if (parsed.paid_amount !== undefined && parsed.paid_amount !== null) {
-        const paid = Number(parsed.paid_amount) || 0;
+      const paidVal = parsed.paid_amount !== undefined ? parsed.paid_amount : (parsed.invoice && parsed.invoice.paid_amount !== undefined ? parsed.invoice.paid_amount : null);
+      if (paidVal !== undefined && paidVal !== null) {
+        const paid = Number(paidVal) || 0;
         setPaidAmount(paid);
         if (paid === 0) {
           setPaymentMethod('credit');
@@ -612,15 +996,18 @@ Strict Rules:
 
       for (const item of parsed.items) {
         let productId: number | null = null;
-        let productName: string = item.name;
+        let productName: string = item.translated_name_ar || item.original_name || item.name;
+        let productNameFr: string = item.original_name || item.name;
         let productBarcode: string | null = item.sku;
         let categoryId = 1;
         let unitId = 1;
         let brandId = 1;
         let isNewProduct = true;
+        let needsReview = item.needs_review !== undefined ? item.needs_review : false;
 
-        if (item.sku) {
-          const barcodeRes = await api.invoke('db:products:getByBarcodeOrCode', item.sku.toString().trim());
+        const skuStr = item.sku ? item.sku.toString().trim() : '';
+        if (skuStr) {
+          const barcodeRes = await api.invoke('db:products:getByBarcodeOrCode', skuStr);
           if (barcodeRes.success && barcodeRes.data) {
             productId = barcodeRes.data.id;
             productName = barcodeRes.data.name;
@@ -632,8 +1019,9 @@ Strict Rules:
           }
         }
 
-        if (isNewProduct && item.name) {
-          const nameRes = await api.invoke('db:products:search', item.name);
+        const nameSearchStr = item.original_name || item.name || '';
+        if (isNewProduct && nameSearchStr) {
+          const nameRes = await api.invoke('db:products:search', nameSearchStr);
           if (nameRes.success && nameRes.data && nameRes.data.length > 0) {
             const bestMatch = nameRes.data[0];
             productId = bestMatch.id;
@@ -646,22 +1034,59 @@ Strict Rules:
           }
         }
 
+        // If it is a new product, we mark it for review
+        if (isNewProduct) {
+          needsReview = true;
+        }
+
+        // Map Category suggestion
         if (isNewProduct && item.category_suggestion) {
+          const suggestion = item.category_suggestion.trim().toLowerCase();
+          
+          // English to Arabic helper mapping just in case
+          const englishToArabicMap: Record<string, string> = {
+            'filters': 'فلاتر',
+            'filter': 'فلاتر',
+            'oils': 'زيوت ومواد التشحيم',
+            'oil': 'زيوت ومواد التشحيم',
+            'brakes': 'فرامل',
+            'brake': 'فرامل',
+            'electrical': 'كهرباء السيارة',
+            'engine': 'محرك',
+            'suspension': 'تعليق وتوجيه',
+            'steering': 'تعليق وتوجيه',
+            'tires': 'إطارات وعجلات',
+            'wheels': 'إطارات وعجلات',
+            'accessories': 'إكسسوارات'
+          };
+          
+          const mappedSuggestion = englishToArabicMap[suggestion] || suggestion;
+
           const cat = categories.find(c => 
-            c.name.toLowerCase().includes(item.category_suggestion.toLowerCase()) || 
-            item.category_suggestion.toLowerCase().includes(c.name.toLowerCase())
+            c.name.trim() === item.category_suggestion.trim() ||
+            c.name.toLowerCase().includes(mappedSuggestion) || 
+            mappedSuggestion.includes(c.name.toLowerCase())
           );
           if (cat) categoryId = cat.id;
         }
 
+        // Map Unit suggestion
         if (isNewProduct) {
+          const unitSuggestion = item.packaging?.is_box ? 'Box' : (item.unit_suggestion || '');
           const u = units.find(unit => 
-            unit.name.toLowerCase().includes(item.unit_suggestion?.toLowerCase() || '') || 
-            unit.name.includes('قطعة')
+            unit.name.toLowerCase().includes(unitSuggestion.toLowerCase()) || 
+            unit.code.toLowerCase().includes(unitSuggestion.toLowerCase())
           );
-          if (u) unitId = u.id;
+          if (u) {
+            unitId = u.id;
+          } else {
+            // Default unit
+            const pUnit = units.find(unit => unit.name.includes('قطعة'));
+            if (pUnit) unitId = pUnit.id;
+          }
         }
 
+        // Map Brand suggestion
         if (isNewProduct && item.brand_suggestion) {
           const b = dbBrands.find(brand => 
             brand.name.toLowerCase().includes(item.brand_suggestion.toLowerCase()) || 
@@ -670,121 +1095,49 @@ Strict Rules:
           if (b) brandId = b.id;
         }
 
-        const matchedFitments = [];
-        if (item.compatibility_suggestions && Array.isArray(item.compatibility_suggestions)) {
-          for (const sug of item.compatibility_suggestions) {
-            const lowerSug = sug.toLowerCase().trim();
-            const matchedModel = vehicles.find(v => {
-              const brand = v.brand_name?.toLowerCase() || '';
-              const model = v.name?.toLowerCase() || '';
-              return lowerSug.includes(model) && (lowerSug.includes(brand) || brand.includes(lowerSug.split(' ')[0]));
-            });
-            if (matchedModel) {
-              matchedFitments.push({
-                vehicle_brand_id: matchedModel.vehicle_brand_id,
-                vehicle_model_id: matchedModel.id,
-                vehicle_brand_name: matchedModel.brand_name,
-                vehicle_model_name: matchedModel.name
-              });
-            } else {
-              try {
-                const createRes = await api.invoke('db:vehicles:parseAndCreate', sug);
-                if (createRes.success && createRes.data) {
-                  matchedFitments.push({
-                    vehicle_brand_id: createRes.data.vehicle_brand_id,
-                    vehicle_model_id: createRes.data.vehicle_model_id,
-                    vehicle_brand_name: createRes.data.vehicle_brand_name,
-                    vehicle_model_name: createRes.data.vehicle_model_name
-                  });
-                  vehicles.push({
-                    id: createRes.data.vehicle_model_id,
-                    name: createRes.data.vehicle_model_name,
-                    vehicle_brand_id: createRes.data.vehicle_brand_id,
-                    brand_name: createRes.data.vehicle_brand_name
-                  });
-                }
-              } catch (err) {
-                console.error('Failed to auto-create compatibility model:', err);
-              }
-            }
-          }
-        }
-
-        if (isNewProduct) {
-          // Calculate default selling prices based on the default margin
-          const purchasePrice = item.purchase_price || 0;
-          const retailMargin = 30; // default margin
-          const retailPrice = Math.round(purchasePrice * (1 + retailMargin / 100));
-          const wholesalePrice = Math.round(purchasePrice * 1.2);
-
-          const newProductData = {
-            name: item.name_ar_suggestion || item.name,
-            name_fr: item.name,
-            barcode: item.sku || undefined,
-            internal_code: item.sku ? undefined : `INT-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*1000)}`,
-            category_id: categoryId,
-            brand_id: brandId,
-            unit_id: unitId,
-            purchase_price: purchasePrice,
-            retail_price: retailPrice,
-            wholesale_price: wholesalePrice,
-            initial_stock: 0,
-            has_sub_unit: false,
-            pieces_per_box: 1,
-            fitments: matchedFitments.map((f: any) => ({
-              vehicle_brand_id: f.vehicle_brand_id,
-              vehicle_model_id: f.vehicle_model_id
-            }))
-          };
-
-          const createRes = await api.invoke('db:products:create', newProductData);
-          if (!createRes.success) {
-            throw new Error(`فشل إنشاء المنتج "${item.name}": ${createRes.error}`);
-          }
-          productId = createRes.id;
-          productName = item.name;
-          productBarcode = item.sku || createRes.internal_code || `INT-${productId}`;
-        } else if (!isNewProduct && productId && matchedFitments.length > 0) {
-          for (const f of matchedFitments) {
-            try {
-              await api.invoke('db:fitments:create', {
-                product_id: productId,
-                model_id: f.vehicle_model_id
-              });
-            } catch (err) {
-              console.error('Failed to link fitment to existing product:', err);
-            }
-          }
-        }
-
         const purchasePrice = item.purchase_price || 0;
         const retailMargin = 30;
         const retailPrice = Math.round(purchasePrice * (1 + retailMargin / 100));
         const wholesalePrice = Math.round(purchasePrice * 1.2);
 
+        const qtyVal = item.qty || item.quantity || 1;
+
         finalItems.push({
           id: `pi-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-          product_id: productId!,
+          product_id: productId || 0, // 0 indicates a pending new product
           product_name_snapshot: productName,
           product_barcode_snapshot: productBarcode,
-          product_name: item.name_ar_suggestion || item.name,
-          product_name_fr: item.name,
-          quantity: item.qty || 1,
-          unit: units.find(u => u.id === unitId)?.name || 'قطعة',
+          product_name: productName,
+          product_name_fr: productNameFr,
+          quantity: qtyVal,
+          unit: item.packaging?.is_box ? 'علبة' : (units.find(u => u.id === unitId)?.name || 'قطعة'),
           unit_price: purchasePrice,
-          total: roundTo2(purchasePrice * (item.qty || 1)),
+          total: roundTo2(purchasePrice * qtyVal),
           wholesale_price: wholesalePrice,
           retail_price: retailPrice,
           retail_margin: retailMargin,
           category_id: categoryId,
           unit_id: unitId,
+          brand_id: brandId,
           sort_order: items.length + finalItems.length + 1,
-          inventory_check: false
+          inventory_check: false,
+          isNewProduct: isNewProduct,
+          needs_review: needsReview,
+          has_sub_unit: item.packaging?.is_box || false,
+          pieces_per_box: item.packaging?.box_size || 1,
+          compatibility_suggestions: item.compatibility_suggestions || []
         });
       }
 
       setItems(prev => [...prev, ...finalItems]);
       showNotification('success', `تم استيراد ${parsed.items.length} منتج بنجاح إلى الفاتورة مباشرة!`);
+      
+      if (selectedInvoice) {
+        await api.invoke('mobile:mark-invoice-processed', selectedInvoice.id);
+        setSelectedInvoice(null);
+        loadInvoiceQueue();
+      }
+
       setShowSmartImportModal(false);
       setImportJsonText('');
     } catch (e: any) {
@@ -848,6 +1201,28 @@ Strict Rules:
     productSearchRef.current?.focus();
   };
 
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const handleMobileBarcode = async (data: { barcode: string; found: boolean; name: string; price: number | null; quantity: number | null }) => {
+      if (!data.found) return; // Handled globally by App.tsx to avoid duplicate errors
+      try {
+        const res = await window.electronAPI.invoke('db:products:getByBarcodeOrCode', data.barcode);
+        if (res.success && res.data) {
+          addProduct(res.data);
+          showNotification('success', `تمت إضافة المنتج من الهاتف: ${res.data.name} 📱`);
+        }
+      } catch (err) {
+        console.error('Error handling mobile barcode scan:', err);
+      }
+    };
+
+    window.electronAPI.on('mobile:barcode-scanned', handleMobileBarcode);
+    return () => {
+      window.electronAPI?.removeAllListeners('mobile:barcode-scanned');
+    };
+  }, [addProduct]);
+
   const updateItem = (id: string, field: string, value: number | string | boolean) => {
     setItems(prev => prev.map(item => {
       if (item.id !== id) return item;
@@ -877,12 +1252,137 @@ Strict Rules:
 
   const removeItem = (id: string) => setItems(prev => prev.filter(i => i.id !== id));
 
+  // Helper to resolve fitments based on text suggestions
+  const resolveFitments = async (suggestions: any[]): Promise<any[]> => {
+    if (!suggestions || suggestions.length === 0) return [];
+    const api = window.electronAPI;
+    if (!api) return [];
+    
+    let vehiclesList: any[] = [];
+    try {
+      const vRes = await api.invoke('db:vehicles:getModels');
+      if (vRes.success && vRes.data) vehiclesList = vRes.data;
+    } catch {}
+
+    const resolved = [];
+    for (const sug of suggestions) {
+      if (!sug) continue;
+      
+      let brandName = '';
+      let modelName = '';
+      let searchString = '';
+
+      if (typeof sug === 'object') {
+        brandName = (sug.brand || sug.make || '').trim();
+        modelName = (sug.model || '').trim();
+        searchString = `${brandName} ${modelName}`.trim();
+      } else if (typeof sug === 'string') {
+        searchString = sug.trim();
+        const parts = searchString.split(/\s+/);
+        if (parts.length >= 2) {
+          brandName = parts[0];
+          modelName = parts.slice(1).join(' ');
+        } else {
+          modelName = searchString;
+        }
+      }
+
+      if (!searchString) continue;
+
+      const lowerBrand = brandName.toLowerCase();
+      const lowerModel = modelName.toLowerCase();
+      const lowerSearch = searchString.toLowerCase();
+
+      // 1. Try to find in existing models
+      const matchedModel = vehiclesList.find(v => {
+        const brand = (v.brand_name || '').toLowerCase();
+        const model = (v.name || '').toLowerCase();
+        
+        if (lowerBrand && lowerModel) {
+          return brand === lowerBrand && model === lowerModel;
+        }
+        return lowerSearch.includes(model) && (lowerSearch.includes(brand) || brand.includes(lowerSearch.split(' ')[0]));
+      });
+
+      if (matchedModel) {
+        resolved.push({
+          vehicle_brand_id: matchedModel.vehicle_brand_id,
+          vehicle_model_id: matchedModel.id
+        });
+      } else {
+        // 2. Parse and create using parseAndCreate
+        try {
+          const fitRes = await api.invoke('db:vehicles:parseAndCreate', searchString);
+          if (fitRes.success && fitRes.data) {
+            resolved.push({
+              vehicle_brand_id: fitRes.data.vehicle_brand_id,
+              vehicle_model_id: fitRes.data.vehicle_model_id
+            });
+          }
+        } catch {}
+      }
+    }
+    return resolved;
+  };
+
+  // Helper to create all pending products before saving the invoice
+  const createPendingProducts = async (currentItems: PurchaseItem[]): Promise<PurchaseItem[]> => {
+    const api = window.electronAPI;
+    if (!api) return currentItems;
+
+    const resolvedItems = [...currentItems];
+    for (let i = 0; i < resolvedItems.length; i++) {
+      const item = resolvedItems[i];
+      if (item.isNewProduct || item.product_id <= 0) {
+        // Resolve fitments
+        const fitments = await resolveFitments(item.compatibility_suggestions || []);
+
+        const newProductData = {
+          name: item.product_name || item.product_name_snapshot,
+          name_fr: item.product_name_fr || item.product_name_snapshot,
+          barcode: item.product_barcode_snapshot || undefined,
+          internal_code: item.product_barcode_snapshot ? undefined : `INT-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*1000)}`,
+          category_id: item.category_id || 1,
+          brand_id: item.brand_id || 1,
+          unit_id: item.unit_id || 1,
+          purchase_price: item.unit_price,
+          retail_price: item.retail_price,
+          wholesale_price: item.wholesale_price,
+          initial_stock: 0,
+          has_sub_unit: item.has_sub_unit || false,
+          pieces_per_box: item.pieces_per_box || 1,
+          fitments
+        };
+
+        const createRes = await api.invoke('db:products:create', newProductData);
+        if (createRes.success && createRes.id) {
+          const newId = createRes.id;
+          resolvedItems[i] = {
+            ...item,
+            product_id: newId,
+            product_barcode_snapshot: item.product_barcode_snapshot || createRes.internal_code || `INT-${newId}`,
+            isNewProduct: false,
+            needs_review: false
+          };
+        } else {
+          throw new Error(createRes.error || `فشل إنشاء المنتج "${item.product_name_snapshot}"`);
+        }
+      }
+    }
+    return resolvedItems;
+  };
+
   // ── Auto-save as draft (auto-park) ──
   const autoSaveDraft = async (): Promise<number | false> => {
     if (items.length === 0) return false;
     try {
       const api = window.electronAPI;
       if (!api) return false;
+
+      // Resolve pending products first
+      const resolvedItems = await createPendingProducts(items);
+      setItems(resolvedItems);
+
       const invoice = {
         id: currentInvoiceId || undefined,
         supplier_invoice_number: invoiceNumber,
@@ -891,7 +1391,7 @@ Strict Rules:
         total, paid: paidAmount,
         status: 'draft',
         notes,
-        items: items.map(i => ({
+        items: resolvedItems.map(i => ({
           product_id: i.product_id,
           product_name_snapshot: i.product_name_snapshot,
           product_barcode_snapshot: i.product_barcode_snapshot,
@@ -908,20 +1408,26 @@ Strict Rules:
       const res: any = await api.invoke('db:purchases:save', invoice);
       if (res?.success) {
         if (!currentInvoiceId && res.id) setCurrentInvoiceId(res.id);
+        setInvoiceStatus('draft');
         return res.id || true;
       }
       return false;
     } catch { return false; }
   };
 
-  const resetInvoice = async () => {
+  const resetInvoice = async (skipAutoPark: any = false) => {
+    const shouldSkip = skipAutoPark === true;
     // Auto-park: save current unsaved invoice as draft before clearing
-    if (items.length > 0 && !currentInvoiceId) {
+    if (!shouldSkip && items.length > 0 && !isSavedRef.current && invoiceStatus !== 'confirmed' && invoiceStatus !== 'cancelled') {
       const draftId = await autoSaveDraft();
       if (draftId) {
         playNotificationSound('success');
         showAutoParkToast('purchases', draftId);
       }
+    }
+    if (id) {
+      navigate('/purchases/new');
+      return;
     }
     setItems([]); 
     setSupplierId(null); 
@@ -929,6 +1435,7 @@ Strict Rules:
     setSupplierBalance(0);
     setInvoiceNumber(`ACH-${Date.now().toString().slice(-8)}`);
     setCurrentInvoiceId(null);
+    setInvoiceStatus(null);
     setPaidAmount(0); 
     setNotes(''); 
     setPaymentMethod('cash');
@@ -957,6 +1464,18 @@ Strict Rules:
         isSavingRef.current = false;
         return;
       }
+
+      // Resolve pending products first
+      let resolvedItems = items;
+      try {
+        resolvedItems = await createPendingProducts(items);
+        setItems(resolvedItems);
+      } catch (err: any) {
+        showNotification('error', err.message || 'فشل إنشاء المنتجات الجديدة');
+        setSaving(false);
+        isSavingRef.current = false;
+        return;
+      }
       
       const invoice = {
         id: currentInvoiceId || undefined,
@@ -969,7 +1488,7 @@ Strict Rules:
         paid: paidAmount,
         status: 'confirmed', 
         notes, 
-        items: items.map(i => ({
+        items: resolvedItems.map(i => ({
           product_id: i.product_id,
           product_name_snapshot: i.product_name_snapshot,
           product_barcode_snapshot: i.product_barcode_snapshot,
@@ -992,9 +1511,8 @@ Strict Rules:
       if (res?.success) {
         if (!currentInvoiceId && res.id) {
           setCurrentInvoiceId(res.id);
-          // Keep user's invoice number — don't overwrite with system number
-          // setInvoiceNumber(res.invoiceNumber);
         }
+        setInvoiceStatus('confirmed');
         
         if (res.duplicate) {
           showNotification('info', 'تم تحديث فاتورة الشراء');
@@ -1005,7 +1523,7 @@ Strict Rules:
         }
         
         if (res.isNew) {
-          resetInvoice();
+          resetInvoice(true);
           setSaveSessionId(`PURCHASE-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
         }
       } else {
@@ -1015,6 +1533,26 @@ Strict Rules:
     finally {
       setSaving(false);
       isSavingRef.current = false;
+    }
+  };
+
+  const handleSaveDraftManual = async () => {
+    if (items.length === 0) return;
+    setSaving(true);
+    try {
+      const draftId = await autoSaveDraft();
+      if (draftId) {
+        showNotification('success', 'تم حفظ الفاتورة كمسودة بنجاح!');
+        if (!currentInvoiceId && typeof draftId === 'number') {
+          setCurrentInvoiceId(draftId);
+        }
+      } else {
+        showNotification('error', 'فشل حفظ المسودة');
+      }
+    } catch (e: any) {
+      showNotification('error', e.message || 'حدث خطأ أثناء حفظ المسودة');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -1029,12 +1567,13 @@ Strict Rules:
       const res: any = await window.electronAPI?.invoke('db:purchases:cancel', currentInvoiceId);
       if (res?.success) {
         showNotification('success', 'تم إلغاء الفاتورة بنجاح');
+        setInvoiceStatus('cancelled');
         await window.electronAPI?.invoke('db:audit:log', {
           action: 'purchase_cancel',
           details: `إلغاء فاتورة شراء: ${currentInvoiceId}`,
           user_id: user?.id,
         }).catch(() => {});
-        setIsCancelled(true);
+        resetInvoice(true);
       } else {
         showNotification('error', res?.error || 'حدث خطأ أثناء الإلغاء');
       }
@@ -1171,6 +1710,30 @@ Strict Rules:
     return () => window.removeEventListener('keydown', handler);
   }, [items, total, paidAmount, remaining, supplierId, supplierName, invoiceNumber, currentInvoiceId, shortcuts, isCancelled]);
 
+  const selectedItemForEdit = editingItemId ? items.find(it => it.id === editingItemId) : null;
+  const initialDataForEdit = selectedItemForEdit && selectedItemForEdit.isNewProduct ? {
+    name: selectedItemForEdit.product_name_snapshot || selectedItemForEdit.product_name || '',
+    name_fr: selectedItemForEdit.product_name_fr || '',
+    barcode: selectedItemForEdit.product_barcode_snapshot || '',
+    purchase_price: selectedItemForEdit.unit_price,
+    retail_price: selectedItemForEdit.retail_price,
+    retail_margin: selectedItemForEdit.retail_margin,
+    category_id: selectedItemForEdit.category_id,
+    unit_id: selectedItemForEdit.unit_id,
+    brand_id: selectedItemForEdit.brand_id,
+    fitments: (selectedItemForEdit.compatibility_suggestions || []).map((sug: any) => {
+      if (typeof sug === 'object' && sug !== null) {
+        return {
+          vehicle_brand_id: sug.vehicle_brand_id || 0,
+          vehicle_model_id: sug.vehicle_model_id || 0,
+          vehicle_brand_name: sug.brand || sug.vehicle_brand_name || '',
+          vehicle_model_name: sug.model || sug.vehicle_model_name || ''
+        };
+      }
+      return null;
+    }).filter(Boolean)
+  } : null;
+
   return (
     <div className="flex-1 w-full h-full flex flex-col">
       <ProInvoiceLayout
@@ -1247,7 +1810,7 @@ Strict Rules:
         onCancel={currentInvoiceId && !isCancelled ? cancelInvoice : undefined}
         onOpen={() => setShowOpenModal(true)}
         onPrint={handleManualPrint}
-        onDelete={() => {}}
+        onDelete={() => setItems([])}
         totalAmount={total}
         paidAmount={paidAmount}
         onPaidAmountChange={setPaidAmount}
@@ -1255,63 +1818,66 @@ Strict Rules:
         dueAmount={total}
         customerBalance={supplierBalance}
         balanceLabel="ديون المورد:"
-        saveLabel={currentInvoiceId ? 'تعديل' : 'حفظ'}
+        saveLabel={invoiceStatus === 'draft' ? 'تأكيد وحفظ' : (currentInvoiceId ? 'تعديل' : 'حفظ')}
         headerCells={
           <>
-            {columns.filter(c => !c.hidden).map((col, idx) => (
-              <div 
-                key={col.id}
-                draggable={col.id !== 'actions'}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setContextMenu({ x: e.pageX, y: e.pageY, colId: col.id });
-                }}
-                onDragStart={() => handleDragStart(idx)}
-                onDragOver={(e) => handleDragOver(e, idx)}
-                style={{ width: col.flex ? 'auto' : col.width, flex: col.flex ? 1 : 'none' }}
-                className={`h-full flex items-center relative border-l border-border_default select-none group px-3
-                  ${col.align === 'center' ? 'justify-center text-center' : 'justify-start text-right'}
-                  ${col.sortable ? 'cursor-pointer hover:bg-background_card' : 'cursor-grab active:cursor-grabbing'}
-                  ${draggedColIndex.current === idx ? 'opacity-20 bg-emerald-400/20' : 'opacity-100'}
-                  transition-all duration-200
-                `}
-                onClick={() => col.sortable && col.sortKey && toggleSort(col.sortKey)}
-              >
-                <span className="text-[13px] font-bold text-text_primary uppercase tracking-wide">
-                  {col.label}
-                </span>
+            {columns.map((col, fullIdx) => {
+              if (col.hidden) return null;
+              return (
+                <div 
+                  key={col.id}
+                  draggable={col.id !== 'actions'}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setContextMenu({ x: e.pageX, y: e.pageY, colId: col.id });
+                  }}
+                  onDragStart={() => handleDragStart(fullIdx)}
+                  onDragOver={(e) => handleDragOver(e, fullIdx)}
+                  style={{ width: col.flex ? 'auto' : col.width, flex: col.flex ? 1 : 'none' }}
+                  className={`h-full flex items-center relative border-l border-border_default select-none group px-3
+                    ${col.align === 'center' ? 'justify-center text-center' : 'justify-start text-right'}
+                    ${col.sortable ? 'cursor-pointer hover:bg-background_card' : 'cursor-grab active:cursor-grabbing'}
+                    ${draggedColIndex.current === fullIdx ? 'opacity-20 bg-emerald-400/20' : 'opacity-100'}
+                    transition-all duration-200
+                  `}
+                  onClick={() => col.sortable && col.sortKey && toggleSort(col.sortKey)}
+                >
+                  <span className="text-[13px] font-bold text-text_primary uppercase tracking-wide">
+                    {col.label}
+                  </span>
 
-                {col.sortable && sortKey === col.sortKey && sortDir === 'asc' ? (
-                  <span className="mr-1 text-emerald-400 text-[14px]">↑</span>
-                ) : col.sortable && sortKey === col.sortKey && sortDir === 'desc' ? (
-                  <span className="mr-1 text-red-400 text-[14px]">↓</span>
-                ) : null}
+                  {col.sortable && sortKey === col.sortKey && sortDir === 'asc' ? (
+                    <span className="mr-1 text-emerald-400 text-[14px]">↑</span>
+                  ) : col.sortable && sortKey === col.sortKey && sortDir === 'desc' ? (
+                    <span className="mr-1 text-red-400 text-[14px]">↓</span>
+                  ) : null}
 
-                {col.id !== 'actions' && (
-                  <div 
-                    className="absolute left-0 top-0 w-2 h-full cursor-col-resize hover:bg-emerald-400/50 active:bg-emerald-400 transition-all z-30 group-hover:opacity-100 opacity-0"
-                    onMouseDown={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      const startX = e.pageX;
-                      const startWidth = col.width;
-                      document.body.style.cursor = 'col-resize';
-                      const onMouseMove = (moveEvent: MouseEvent) => {
-                        const delta = startX - moveEvent.pageX; 
-                        handleResize(col.id, startWidth + delta);
-                      };
-                      const onMouseUp = () => {
-                        document.body.style.cursor = 'default';
-                        document.removeEventListener('mousemove', onMouseMove);
-                        document.removeEventListener('mouseup', onMouseUp);
-                      };
-                      document.addEventListener('mousemove', onMouseMove);
-                      document.addEventListener('mouseup', onMouseUp);
-                    }}
-                  />
-                )}
-              </div>
-            ))}
+                  {col.id !== 'actions' && (
+                    <div 
+                      className="absolute left-0 top-0 w-2 h-full cursor-col-resize hover:bg-emerald-400/50 active:bg-emerald-400 transition-all z-30 group-hover:opacity-100 opacity-0"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        const startX = e.pageX;
+                        const startWidth = col.width;
+                        document.body.style.cursor = 'col-resize';
+                        const onMouseMove = (moveEvent: MouseEvent) => {
+                          const delta = startX - moveEvent.pageX; 
+                          handleResize(col.id, startWidth + delta);
+                        };
+                        const onMouseUp = () => {
+                          document.body.style.cursor = 'default';
+                          document.removeEventListener('mousemove', onMouseMove);
+                          document.removeEventListener('mouseup', onMouseUp);
+                        };
+                        document.addEventListener('mousemove', onMouseMove);
+                        document.addEventListener('mouseup', onMouseUp);
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </>
         }
         productDropdown={
@@ -1339,7 +1905,7 @@ Strict Rules:
                   <div className="w-[120px] px-3 text-center border-l border-white/[0.08] cursor-pointer hover:bg-white/10 rounded transition-colors" onClick={() => toggleDD('price')}>السعر (د.ج) {arrow('price')}</div>
                 </div>
 
-                <div className="max-h-[580px] overflow-y-auto p-1 custom-scrollbar">
+                <div ref={dropdownScrollRef} className="max-h-[580px] overflow-y-auto p-1 custom-scrollbar">
                   {sortedPR.map((p: any, idx: number) => (
                     <GlassDropdownItem key={p.id} delay={0.06 + idx * 0.035}>
                       <button onClick={() => addProduct(p)} 
@@ -1420,7 +1986,7 @@ Strict Rules:
                 <div className="w-[130px] text-center">الهاتف</div>
               </div>
 
-              <div className="max-h-[350px] overflow-y-auto p-1 custom-scrollbar">
+              <div ref={supplierDropdownScrollRef} className="max-h-[350px] overflow-y-auto p-1 custom-scrollbar">
                 {supplierResults.map((s: any, idx: number) => (
                   <GlassDropdownItem key={s.id} delay={0.06 + idx * 0.035}>
                     <button onClick={() => { setSupplierId(s.id); setSupplierName(s.name); setSupplierBalance(s.balance || 0); setSupplierSearch(''); setShowSupplierDD(false); }}
@@ -1447,7 +2013,7 @@ Strict Rules:
           </div>
         }
         summaryActions={
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-end">
             <div className="flex flex-col gap-1 w-32">
               <label className="text-[10px] text-text_muted uppercase">طريقة الدفع</label>
               <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as any)}
@@ -1459,6 +2025,14 @@ Strict Rules:
         }
       >
         <div className="w-full flex flex-col">
+          {expectedInvoiceTotal !== null && Math.abs(expectedInvoiceTotal - total) > 0.01 && (
+            <div className="mx-4 my-2 p-3 bg-danger_red/10 border border-danger_red/30 rounded-xl text-danger_red flex justify-between items-center text-sm font-bold animate-pulse" dir="rtl">
+              <span>⚠️ تنبيه: مجموع البنود الحالي ({total.toFixed(2)} دج) لا يطابق إجمالي الفاتورة المكتشف ({expectedInvoiceTotal.toFixed(2)} دج)! يرجى التحقق من الأسعار والكميات.</span>
+              <button onClick={() => setExpectedInvoiceTotal(null)} className="hover:bg-danger_red/20 px-2 py-1 rounded-lg transition-all text-xs cursor-pointer">
+                تجاهل
+              </button>
+            </div>
+          )}
           {sortedItems.map((item, index) => (
             <div 
               key={item.id} 
@@ -1466,7 +2040,7 @@ Strict Rules:
               onClick={() => {
                 if (isJardMode) setFocusedRowIndex(index);
               }}
-              className={`pro-row flex items-center border-b border-border_default hover:bg-emerald-400/5 transition-colors group ${index % 2 === 0 ? 'bg-background_secondary' : 'bg-sidebar_bg'} ${focusedRowIndex === index ? 'ring-2 ring-inset ring-primary_blue bg-primary_blue/5 shadow-[0_0_15px_rgba(59,130,246,0.15)] z-20' : ''}`}
+              className={`pro-row flex items-center border-b border-border_default hover:bg-emerald-400/5 transition-colors group ${item.isNewProduct || item.product_id <= 0 ? 'border-r-4 border-r-amber-500 bg-amber-500/[0.04]' : (index % 2 === 0 ? 'bg-background_secondary' : 'bg-sidebar_bg')} ${focusedRowIndex === index ? 'ring-2 ring-inset ring-primary_blue bg-primary_blue/5 shadow-[0_0_15px_rgba(59,130,246,0.15)] z-20' : ''}`}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setRowContextMenu({ x: e.pageX, y: e.pageY, item });
@@ -1487,11 +2061,77 @@ Strict Rules:
                   </div>
                 );
                 if (col.id === 'name') return (
-                  <div key={col.id} style={cellStyle} className={commonClasses}>
-                    <input type="text" value={item.product_name_snapshot} onChange={e => updateItem(item.id, 'product_name_snapshot', e.target.value)}
-                      readOnly={isJardMode}
-                      dir="auto"
-                      className="w-full bg-transparent border border-transparent focus:border-border_default rounded px-1 py-0.5 text-[13px] font-bold text-text_primary text-start focus:bg-background_card outline-none transition-all" />
+                  <div key={col.id} style={cellStyle} className={`${commonClasses} flex-col items-start justify-center relative`}>
+                    <div className="flex items-center gap-1.5 w-full">
+                      <input type="text" value={item.product_name_snapshot} onChange={e => updateItem(item.id, 'product_name_snapshot', e.target.value)}
+                        readOnly={isJardMode}
+                        dir="auto"
+                        className="w-full bg-transparent border border-transparent focus:border-border_default rounded px-1 py-0.5 text-[13px] font-bold text-text_primary text-start focus:bg-background_card outline-none transition-all" />
+                      {item.isNewProduct && (
+                        <span className="shrink-0 text-[10px] bg-amber-500/20 text-amber-500 font-black px-1.5 py-0.5 rounded border border-amber-500/30">جديد</span>
+                      )}
+                      {item.needs_review && !item.isNewProduct && (
+                        <span className="shrink-0 text-[10px] bg-blue-500/20 text-blue-500 font-black px-1.5 py-0.5 rounded border border-blue-500/30">مراجعة</span>
+                      )}
+                      {item.product_is_active === 0 && (
+                        <span className="shrink-0 text-[10px] bg-danger_red/20 text-danger_red font-black px-1.5 py-0.5 rounded border border-danger_red/30">موقوف</span>
+                      )}
+                    </div>
+                    {item.isNewProduct && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMappingRowId(item.id);
+                          setRowSearchQuery("");
+                        }}
+                        className="text-[10px] text-primary_blue hover:underline cursor-pointer font-bold px-1"
+                      >
+                        ربط بمنتج مسجل 🔗
+                      </button>
+                    )}
+                    {mappingRowId === item.id && (
+                      <div className="absolute right-0 top-full mt-1 z-[99] bg-background_secondary/95 backdrop-blur-md border border-border_default rounded-xl shadow-2xl p-3 w-[350px] flex flex-col gap-2 text-right" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-center border-b border-border_default pb-1">
+                          <button onClick={() => { setMappingRowId(null); setRowSearchQuery(""); }} className="p-1 hover:text-danger_red text-text_muted cursor-pointer">
+                            <X size={14} />
+                          </button>
+                          <span className="text-xs font-bold text-text_primary">ربط بمنتج مسجل:</span>
+                        </div>
+                        <input
+                          type="text"
+                          value={rowSearchQuery}
+                          onChange={e => setRowSearchQuery(e.target.value)}
+                          placeholder="ابحث بالاسم أو الباركود..."
+                          autoFocus
+                          className="w-full bg-background_card border border-border_default rounded-lg px-2 py-1.5 text-xs text-text_primary outline-none focus:border-primary_blue text-right"
+                        />
+                        <div className="max-h-[180px] overflow-y-auto custom-scrollbar flex flex-col gap-1 pr-1">
+                          {rowSearchResults.map((prod: any) => (
+                            <button
+                              key={prod.id}
+                              onClick={() => {
+                                updateItem(item.id, 'product_id', prod.id);
+                                updateItem(item.id, 'product_name_snapshot', prod.name);
+                                updateItem(item.id, 'product_barcode_snapshot', prod.barcode || prod.internal_code || null);
+                                updateItem(item.id, 'category_id', prod.category_id || 1);
+                                updateItem(item.id, 'unit_id', prod.unit_id || 1);
+                                updateItem(item.id, 'isNewProduct', false);
+                                updateItem(item.id, 'needs_review', false);
+                                setMappingRowId(null);
+                                setRowSearchQuery("");
+                              }}
+                              className="w-full text-right px-2 py-1.5 hover:bg-primary_blue/10 rounded-md text-xs text-text_primary flex justify-between items-center transition-all cursor-pointer"
+                            >
+                              <span className="text-[10px] text-text_muted font-mono">{prod.barcode || prod.internal_code || '-'}</span>
+                              <span className="font-bold">{prod.name}</span>
+                            </button>
+                          ))}
+                          {rowSearchQuery.length > 0 && rowSearchResults.length === 0 && (
+                            <div className="text-center text-xs text-text_muted py-2">لا توجد نتائج مطابقة</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
                 if (col.id === 'category') return (
@@ -1615,7 +2255,17 @@ Strict Rules:
                       >
                         <Barcode size={16} />
                       </button>
-                      <button onClick={() => { setEditingProductId(item.product_id); }} className="p-1.5 text-primary_blue hover:bg-primary_blue/10 rounded-lg transition-all">
+                      <button 
+                        onClick={() => { 
+                          setEditingItemId(item.id);
+                          if (item.isNewProduct) {
+                            setEditingProductId(null);
+                          } else {
+                            setEditingProductId(item.product_id);
+                          }
+                        }} 
+                        className="p-1.5 text-primary_blue hover:bg-primary_blue/10 rounded-lg transition-all"
+                      >
                         <Edit2 size={16} />
                       </button>
                       <button onClick={() => removeItem(item.id)} className="p-1.5 text-text_primary hover:text-danger_red hover:bg-danger_red/10 rounded-lg transition-all">
@@ -1636,6 +2286,13 @@ Strict Rules:
               ))}
             </div>
           ))}
+          {items.length > 0 && Array.from({ length: 3 }).map((_, idx) => (
+            <div key={`extra-dummy-${idx}`} className={`flex items-center px-0 py-0 h-11 border-b border-border_default pointer-events-none ${(sortedItems.length + idx) % 2 === 0 ? 'bg-background_secondary' : 'bg-sidebar_bg'}`}>
+              {columns.filter(c => !c.hidden).map(col => (
+                <div key={col.id} style={{ width: col.flex ? 'auto' : col.width, flex: col.flex ? 1 : 'none' }} className="h-full border-l border-border_default" />
+              ))}
+            </div>
+          ))}
         </div>
       </ProInvoiceLayout>
 
@@ -1647,7 +2304,7 @@ Strict Rules:
           }
         }}>
           <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-            className="bg-background_secondary/85 backdrop-blur-2xl border border-white/15 dark:border-white/10 rounded-2xl shadow-2xl shadow-black/20 dark:shadow-black/40 p-6 w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            className="bg-background_secondary/85 backdrop-blur-2xl border border-white/15 dark:border-white/10 rounded-2xl shadow-2xl shadow-black/20 dark:shadow-black/40 p-6 w-full max-w-5xl max-h-[95vh] flex flex-col" onClick={e => e.stopPropagation()}>
             
             {/* Header */}
             <div className="flex justify-between items-center pb-4 border-b border-border_default mb-4 shrink-0">
@@ -1657,57 +2314,161 @@ Strict Rules:
               </h2>
               <button onClick={() => {
                 setShowSmartImportModal(false);
-              }} className="p-2 text-text_muted hover:text-danger_red bg-background_card rounded-full transition-all">
+              }} className="p-2 text-text_muted hover:text-danger_red bg-background_card rounded-full transition-all cursor-pointer">
                 <XCircle size={20}/>
               </button>
             </div>
 
-            {/* Paste JSON Code Panel */}
-            <div className="flex-1 flex flex-col gap-4 overflow-y-auto min-h-[400px]">
-              <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl space-y-2">
-                <h3 className="text-sm font-bold text-blue-500 flex items-center gap-2">
-                  <Sparkles size={16}/> طريقة الاستخدام:
-                </h3>
-                <p className="text-xs text-text_secondary leading-relaxed">
-                  1. اضغط على الزر أدناه لنسخ برومبت التحليل لـ Gemini/ChatGPT.<br />
-                  2. افتح متصفحك، وارفع صورة الفاتورة المطبوعة والصق البرومبت المنسوخ.<br />
-                  3. انسخ كود الـ JSON الناتج من الذكاء الاصطناعي والصقه في المربع أدناه للبدء في الاستيراد.
-                </p>
-                <button
-                  onClick={handleCopyPrompt}
-                  className="mt-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg px-4 py-2 text-xs font-bold transition-all flex items-center gap-1.5"
+            {/* Dropdown Selector */}
+            {invoiceQueue.length > 0 && (
+              <div className="mb-4 shrink-0 flex items-center gap-3">
+                <label className="text-sm font-bold text-text_primary shrink-0">الفواتير المرفوعة حديثاً من الهاتف:</label>
+                <select
+                  value={selectedInvoice?.id || ''}
+                  onChange={(e) => {
+                    const inv = invoiceQueue.find(i => i.id === Number(e.target.value));
+                    setSelectedInvoice(inv || null);
+                  }}
+                  className="bg-background_card border border-border_default rounded-xl h-11 px-3 text-sm text-text_primary font-bold focus:border-primary_blue focus:outline-none cursor-pointer flex-1"
                 >
-                  <Plus size={14} />
-                  نسخ برومبت التحليل الذكي
-                </button>
+                  <option value="">-- اختر فاتورة ممسوحة ضوئياً --</option>
+                  {invoiceQueue.map((inv: any) => (
+                    <option key={inv.id} value={inv.id}>
+                      فاتورة تاريخ {new Date(inv.createdAt).toLocaleString('ar-DZ')} ({inv.filePath})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Split layout */}
+            <div className="flex-1 flex flex-col md:flex-row gap-6 overflow-hidden min-h-[450px]">
+              
+              {/* Left Column: Invoice Image Preview */}
+              <div className="flex-1 border border-border_default rounded-2xl bg-black/20 p-2 flex flex-col justify-center items-center h-full overflow-hidden relative group">
+                {selectedInvoice ? (
+                  <>
+                    <img
+                      src={`http://localhost:8766/invoices/${selectedInvoice.filePath}`}
+                      alt="Invoice Preview"
+                      className="max-w-full max-h-[420px] object-contain rounded-lg transition-all"
+                    />
+                    <div className="absolute bottom-4 left-4 right-4 flex justify-between gap-2 pointer-events-none">
+                      <button
+                        onClick={handleCopyImage}
+                        className="pointer-events-auto bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-2 rounded-xl border border-blue-500/30 shadow-lg cursor-pointer transition-all active:scale-95 flex items-center gap-1.5"
+                      >
+                        <Copy size={13} />
+                        نسخ الصورة 📋
+                      </button>
+                      <button
+                        onClick={() => {
+                          window.electronAPI?.invoke('shell:openExternal', `http://localhost:8766/invoices/${selectedInvoice.filePath}`);
+                        }}
+                        className="pointer-events-auto bg-background_secondary/90 hover:bg-background_secondary text-xs text-text_primary font-bold px-3 py-2 rounded-xl border border-border_default/30 shadow-lg cursor-pointer transition-all active:scale-95"
+                      >
+                        فتح في نافذة كاملة 🡥
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center text-text_muted p-8 flex flex-col items-center gap-3">
+                    <FileText size={48} className="opacity-30 text-primary_blue animate-pulse" />
+                    <p className="text-sm font-bold">لا توجد فاتورة محددة</p>
+                    <p className="text-xs text-text_muted font-bold max-w-xs leading-relaxed">
+                      الرجاء اختيار فاتورة من القائمة المنسدلة أعلاه أو تصوير الفاتورة من تطبيق الهاتف لتظهر هنا مباشرة.
+                    </p>
+                  </div>
+                )}
               </div>
 
-              <div className="flex-1 flex flex-col">
-                <label className="text-sm font-bold text-text_primary mb-2 block">الصق كود الـ JSON هنا:</label>
-                <textarea
-                  value={importJsonText}
-                  onChange={(e) => setImportJsonText(e.target.value)}
-                  placeholder="الصق كود الـ JSON المستخرج من الذكاء الاصطناعي..."
-                  className="flex-1 w-full min-h-[250px] p-4 bg-background_card border border-border_default rounded-xl text-sm font-mono text-text_primary placeholder:text-text_muted focus:border-primary_blue focus:outline-none custom-scrollbar"
-                />
+              {/* Right Column: Prompt & Textarea */}
+              <div className="flex-1 flex flex-col gap-4 overflow-y-auto custom-scrollbar h-full pr-1">
+                <div className="p-5 bg-background_card border border-border_default rounded-xl space-y-4 shadow-inner">
+                  <h3 className="text-sm font-bold text-text_primary flex items-center gap-2 border-b border-border_default pb-2">
+                    <Sparkles className="text-primary_blue" size={18}/> طريقة الاستخدام:
+                  </h3>
+                  
+                  <div className="space-y-3 text-xs text-text_secondary leading-relaxed font-sans">
+                    <div>
+                      <span className="font-bold text-primary_blue block mb-1">الخطوة 1: نسخ البرومبت المطور</span>
+                      <p>قم بنسخ برومبت التحليل المطور بالضغط على الزر أدناه لتوجيه الذكاء الاصطناعي لكيفية استخراج البيانات بدقة.</p>
+                      <button
+                        onClick={handleCopyPrompt}
+                        className="mt-2 w-full bg-blue-600 hover:bg-blue-500 text-white rounded-xl py-2.5 px-4 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-98"
+                      >
+                        <Plus size={14} />
+                        نسخ برومبت التحليل الذكي
+                      </button>
+                    </div>
+
+                    <div className="pt-2">
+                      <span className="font-bold text-primary_blue block mb-2">الخطوة 2: فتح موقع الذكاء الاصطناعي</span>
+                      <p className="mb-2">اختر أحد الأنظمة المتاحة لديك، وارفع صورة الفاتورة المحددة على اليسار ثم الصق البرومبت:</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => window.electronAPI?.invoke('shell:openExternal', 'https://gemini.google.com/')}
+                          className="bg-[#1a73e8]/10 hover:bg-[#1a73e8]/20 border border-[#1a73e8]/30 text-[#1a73e8] dark:text-[#8ab4f8] rounded-lg py-2 text-xs font-bold transition-all cursor-pointer text-center"
+                        >
+                          فتح Gemini 🌐
+                        </button>
+                        <button
+                          onClick={() => window.electronAPI?.invoke('shell:openExternal', 'https://chatgpt.com/')}
+                          className="bg-[#10a37f]/10 hover:bg-[#10a37f]/20 border border-[#10a37f]/30 text-[#10a37f] dark:text-[#54cba8] rounded-lg py-2 text-xs font-bold transition-all cursor-pointer text-center"
+                        >
+                          فتح ChatGPT 🤖
+                        </button>
+                        <button
+                          onClick={() => window.electronAPI?.invoke('shell:openExternal', 'https://claude.ai/')}
+                          className="bg-[#d97706]/10 hover:bg-[#d97706]/20 border border-[#d97706]/30 text-[#d97706] dark:text-[#fbbf24] rounded-lg py-2 text-xs font-bold transition-all cursor-pointer text-center"
+                        >
+                          فتح Claude 🧠
+                        </button>
+                        <button
+                          onClick={() => window.electronAPI?.invoke('shell:openExternal', 'https://chat.deepseek.com/')}
+                          className="bg-[#2563eb]/10 hover:bg-[#2563eb]/20 border border-[#2563eb]/30 text-[#2563eb] dark:text-[#60a5fa] rounded-lg py-2 text-xs font-bold transition-all cursor-pointer text-center"
+                        >
+                          فتح DeepSeek 🔍
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <span className="font-bold text-primary_blue block mb-1">الخطوة 3: لصق الناتج والتحليل</span>
+                      <p>انسخ الكود الناتج من الذكاء الاصطناعي (JSON) وضعه في المربع أدناه لمراجعته وتسويته.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 flex flex-col min-h-[200px]">
+                  <label className="text-sm font-bold text-text_primary mb-2 block">الصق كود الـ JSON هنا:</label>
+                  <textarea
+                    value={importJsonText}
+                    onChange={(e) => setImportJsonText(e.target.value)}
+                    placeholder="الصق كود الـ JSON المستخرج من الذكاء الاصطناعي..."
+                    className="flex-1 w-full min-h-[180px] p-4 bg-background_card border border-border_default rounded-xl text-sm font-mono text-text_primary placeholder:text-text_muted focus:border-primary_blue focus:outline-none custom-scrollbar"
+                  />
+                </div>
               </div>
 
-              <div className="pt-4 border-t border-border_default flex justify-end gap-2 shrink-0">
-                <button
-                  onClick={() => setShowSmartImportModal(false)}
-                  disabled={isReconciling}
-                  className="px-6 py-3 bg-background_secondary border border-border_default text-text_primary rounded-xl text-sm font-bold transition-all hover:bg-background_card_hover disabled:opacity-50"
-                >
-                  إلغاء
-                </button>
-                <button
-                  onClick={handleAnalyzeJson}
-                  disabled={isReconciling}
-                  className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-xl font-bold text-sm shadow-lg shadow-blue-600/20 transition-all disabled:opacity-50"
-                >
-                  {isReconciling ? 'جاري الاستيراد والمطابقة...' : 'تأكيد واستيراد الفاتورة 🡥'}
-                </button>
-              </div>
+            </div>
+
+            {/* Footer buttons */}
+            <div className="pt-4 border-t border-border_default flex justify-end gap-2 shrink-0 mt-4">
+              <button
+                onClick={() => setShowSmartImportModal(false)}
+                disabled={isReconciling}
+                className="px-6 py-3 bg-background_secondary border border-border_default text-text_primary rounded-xl text-sm font-bold transition-all hover:bg-background_card_hover disabled:opacity-50 cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={() => handleAnalyzeJson()}
+                disabled={isReconciling}
+                className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-xl font-bold text-sm shadow-lg shadow-blue-600/20 transition-all disabled:opacity-50 cursor-pointer"
+              >
+                {isReconciling ? 'جاري الاستيراد والمطابقة...' : 'تأكيد واستيراد الفاتورة 🡥'}
+              </button>
             </div>
 
           </motion.div>
@@ -1819,6 +2580,7 @@ Strict Rules:
       <AddProductModal 
         isOpen={showAddModal} 
         onClose={() => setShowAddModal(false)} 
+        hideInitialStock={true}
         onSuccess={(p: any) => { 
           addProduct(p); 
         }} 
@@ -1834,42 +2596,16 @@ Strict Rules:
       />
 
       {contextMenu && (
-        <div 
-          className="fixed bg-background_secondary/85 backdrop-blur-2xl border border-white/15 dark:border-white/10 shadow-2xl rounded-xl z-[9999] overflow-hidden min-w-[220px]"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {contextMenu?.colId !== 'actions' && (
-            <button 
-              className="w-full text-right px-4 py-3 hover:bg-background_card text-sm text-text_primary font-bold border-b border-border_default flex items-center gap-2 group transition-colors"
-              onClick={() => {
-                setColumns(prev => prev.map(c => c.id === contextMenu?.colId ? { ...c, hidden: true } : c));
-                setContextMenu(null);
-              }}
-            >
-              <EyeOff size={16} className="text-text_primary group-hover:text-danger_red transition-colors" /> 
-              إخفاء هذا العمود
-            </button>
-          )}
-
-          {columns.some(c => c.hidden) && (
-            <div className="py-1">
-              <div className="px-4 py-2 text-[10px] text-text_primary uppercase font-black">الأعمدة المخفية:</div>
-              {columns.filter(c => c.hidden).map(c => (
-                <button 
-                  key={c.id}
-                  className="w-full text-right px-4 py-2 hover:bg-background_card text-sm text-emerald-400 font-bold flex items-center gap-2 group"
-                  onClick={() => {
-                    setColumns(prev => prev.map(col => col.id === c.id ? { ...col, hidden: false } : col));
-                  }}
-                >
-                  <Eye size={16} className="text-emerald-400/50 group-hover:text-emerald-400 transition-colors" /> 
-                  إظهار ({c.label})
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <ColumnContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onHideColumn={() => toggleHideColumn(contextMenu.colId)}
+          onResetColumns={resetColumns}
+          onShowAllColumns={() => setColumns(prev => prev.map(c => ({ ...c, hidden: false })))}
+          canHide={columns.filter(c => !c.hidden && c.id !== 'actions').length > 1 && contextMenu.colId !== 'actions'}
+          hasHiddenColumns={columns.some(c => c.hidden)}
+        />
       )}
       <AdminPinModal
         isOpen={showPinModal}
@@ -1888,21 +2624,26 @@ Strict Rules:
       <AnimatePresence>
       </AnimatePresence>
       
-      {editingProductId !== null && (
+      {editingItemId !== null && (
         <AddProductModal
-          isOpen={editingProductId !== null}
-          onClose={() => setEditingProductId(null)}
+          isOpen={editingItemId !== null}
+          onClose={() => {
+            setEditingProductId(null);
+            setEditingItemId(null);
+          }}
           productId={editingProductId}
+          initialData={initialDataForEdit}
           hideInitialStock={true}
           onSuccess={(updatedProduct: any) => {
             if (updatedProduct) {
               setItems(prev => prev.map(item => {
-                if (item.product_id === updatedProduct.id) {
+                if (item.id === editingItemId || (item.product_id > 0 && item.product_id === updatedProduct.id)) {
                   const purchasePrice = updatedProduct.purchase_price || 0;
                   const retailPrice = updatedProduct.retail_price || 0;
                   const retailMargin = purchasePrice > 0 && retailPrice > 0 ? Math.round(((retailPrice / purchasePrice) - 1) * 100) : item.retail_margin;
                   return {
                     ...item,
+                    product_id: updatedProduct.id,
                     product_name_snapshot: updatedProduct.name || item.product_name_snapshot,
                     product_barcode_snapshot: updatedProduct.barcode || item.product_barcode_snapshot,
                     unit_price: purchasePrice,
@@ -1912,6 +2653,8 @@ Strict Rules:
                     retail_margin: retailMargin,
                     category_id: updatedProduct.category_id || item.category_id,
                     unit_id: updatedProduct.unit_id || item.unit_id,
+                    isNewProduct: false,
+                    needs_review: false,
                     inventory_check: isJardMode ? true : item.inventory_check
                   };
                 }
@@ -1923,6 +2666,7 @@ Strict Rules:
               }
             }
             setEditingProductId(null);
+            setEditingItemId(null);
           }}
         />
       )}
@@ -1956,6 +2700,62 @@ Strict Rules:
           }}
         />
       )}
+      {rowContextMenu && (
+        <div
+          className="fixed bg-background_secondary/85 dark:bg-background_secondary/85 backdrop-blur-2xl border border-white/15 dark:border-white/10 shadow-2xl rounded-xl p-1 z-[999] min-w-[160px] animate-in fade-in zoom-in-95 duration-100 text-right"
+          style={{ top: rowContextMenu.y, left: rowContextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-1.5 text-[10px] font-bold text-text_muted border-b border-border_default">خيارات الصف</div>
+          
+          <button
+            onClick={() => {
+              setPhotoModalProduct({
+                id: rowContextMenu.item.product_id,
+                name: rowContextMenu.item.product_name_snapshot || 'منتج',
+                barcode: rowContextMenu.item.product_barcode_snapshot || undefined
+              });
+              setShowPhotoModal(true);
+              setRowContextMenu(null);
+            }}
+            className="w-full text-right px-3 py-2 text-sm text-text_primary hover:bg-text_primary/10 rounded-lg transition-colors flex items-center justify-between"
+          >
+            <span>عرض صور المنتج</span>
+            <ImageIcon size={14} className="text-text_muted" />
+          </button>
+
+          <div className="border-t border-border_default my-1" />
+          
+          <button
+            onClick={() => {
+              removeItem(rowContextMenu.item.id);
+              setRowContextMenu(null);
+            }}
+            className="w-full text-right px-3 py-2 text-sm text-danger_red hover:bg-danger_red/10 rounded-lg transition-colors flex items-center justify-between mb-1"
+          >
+            <span>حذف المنتج</span>
+            <Trash2 size={14} className="text-danger_red" />
+          </button>
+
+          <div className="border-t border-border_default mt-1 pt-1">
+            <div className="px-3 py-1.5 text-[10px] font-bold text-primary_blue uppercase flex items-center gap-1">
+              <Car size={12} /> التوافق والملاءمة
+            </div>
+            <div className="px-2 pb-1 max-w-[200px]">
+              <FitmentsBadges productId={rowContextMenu.item.product_id} mode="view" compact />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ProductPhotoViewerModal
+        isOpen={showPhotoModal}
+        product={photoModalProduct}
+        onClose={() => {
+          setShowPhotoModal(false);
+          setPhotoModalProduct(null);
+        }}
+      />
     </div>
   );
 }

@@ -23,6 +23,7 @@ export default {
         text_secondary: "rgb(var(--text-secondary) / <alpha-value>)",
         text_muted: "rgb(var(--text-muted) / <alpha-value>)",
         border_default: "rgb(var(--border-default) / var(--border-alpha))",
+        border_custom: "rgb(var(--border-default) / <alpha-value>)",
         border_light: "rgb(var(--border-light) / 0.05)",
         sidebar_bg: "rgb(var(--sidebar-bg) / <alpha-value>)",
         topbar_bg: "rgb(var(--topbar-bg) / <alpha-value>)",

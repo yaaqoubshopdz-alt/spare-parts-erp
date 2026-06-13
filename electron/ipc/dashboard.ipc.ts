@@ -258,7 +258,7 @@ export function registerDashboardIPC() {
     }
   });
 
-  // ── Recent drafts (ALL drafts in last 24h, newest first — for notification dropdown) ──
+  // ── Recent drafts (ALL drafts, newest first — for notification dropdown) ──
   ipcMain.handle('db:dashboard:recentDrafts', async () => {
     try {
       const raw = db();
@@ -268,7 +268,6 @@ export function registerDashboardIPC() {
                (julianday('now') - julianday(updated_at)) * 24 as hours_old
         FROM sales_invoices
         WHERE status = 'draft'
-          AND updated_at >= datetime('now', '-24 hours')
         ORDER BY updated_at DESC
         LIMIT 10
       `).all();
@@ -278,7 +277,6 @@ export function registerDashboardIPC() {
                (julianday('now') - julianday(updated_at)) * 24 as hours_old
         FROM purchase_invoices
         WHERE status = 'draft'
-          AND updated_at >= datetime('now', '-24 hours')
         ORDER BY updated_at DESC
         LIMIT 10
       `).all();

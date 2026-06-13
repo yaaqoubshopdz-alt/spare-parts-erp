@@ -93,6 +93,7 @@ export function registerSalesIPC() {
                p.name as product_name, 
                p.name_fr as product_name_fr, 
                p.barcode as product_barcode,
+               p.is_active as product_is_active,
                p.has_sub_unit,
                p.pieces_per_box,
                u.name as unit_name
@@ -240,6 +241,43 @@ export function registerSalesIPC() {
     const allowNegativeStock = allowNegativeStockSetting?.value === 'true';
 
     const oldItems = raw.prepare('SELECT * FROM sales_invoice_items WHERE invoice_id = ?').all(invoiceId) as any[];
+    
+    if (!allowNegativeStock) {
+      const netChangeMap = new Map<number, { change: number, name: string }>();
+
+      for (const newItem of newData.items) {
+        const oldItem = oldItems.find(i => i.product_id === newItem.product_id);
+        const prod: any = raw.prepare('SELECT name, has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(newItem.product_id);
+        
+        let newQty = newItem.quantity;
+        if (prod?.has_sub_unit && newItem.unit === 'علبة') {
+          newQty = newItem.quantity * (prod.pieces_per_box || 1);
+        }
+
+        let oldQty = 0;
+        if (oldItem) {
+          oldQty = oldItem.quantity;
+          if (prod?.has_sub_unit && oldItem.unit === 'علبة') {
+            oldQty = oldItem.quantity * (prod.pieces_per_box || 1);
+          }
+        }
+
+        const delta = newQty - oldQty;
+        if (delta > 0) {
+          const entry = netChangeMap.get(newItem.product_id) || { change: 0, name: prod?.name || newItem.product_name_snapshot || 'Unknown' };
+          entry.change += delta;
+          netChangeMap.set(newItem.product_id, entry);
+        }
+      }
+
+      for (const [productId, entry] of netChangeMap.entries()) {
+        const stockRow = raw.prepare('SELECT quantity FROM stock_balances WHERE product_id = ? AND location_id = 1').get(productId) as { quantity: number } | undefined;
+        const currentQty = stockRow?.quantity || 0;
+        if (currentQty < entry.change) {
+          throw new Error(`الكمية غير كافية في المستودع للمنتج: ${entry.name}. المتوفر: ${currentQty}، المطلوب إضافته: ${entry.change}`);
+        }
+      }
+    }
     
     for (const newItem of newData.items) {
       const oldItem = oldItems.find(i => i.product_id === newItem.product_id);
@@ -476,11 +514,13 @@ export function registerSalesIPC() {
       const tx = raw.transaction(() => {
         const invoice: any = raw.prepare('SELECT * FROM sales_invoices WHERE id = ?').get(id);
         if (!invoice) throw new Error('الفاتورة غير موجودة');
-        if (invoice.status === 'cancelled') throw new Error('الفاتورة ملغاة مسبقاً');
         AccountingEngine._checkClosingDate(raw, invoice.date);
         if (invoice.status === 'confirmed') {
           reverseSaleEffects(raw, id, invoice);
         }
+        // Completely delete corresponding journal entries
+        raw.prepare("DELETE FROM journal_entries WHERE reference_id = ? AND reference_type IN ('sales_invoice', 'sales_invoice_adjustment', 'sales_invoice_reversal')").run(id);
+        // Mark the invoice as cancelled instead of deleting
         raw.prepare("UPDATE sales_invoices SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").run(id);
       });
       tx.immediate();

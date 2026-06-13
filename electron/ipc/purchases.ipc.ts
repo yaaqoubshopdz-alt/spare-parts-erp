@@ -59,6 +59,7 @@ export function registerPurchasesIPC() {
                pr.name as product_name, 
                pr.name_fr as product_name_fr, 
                pr.barcode as product_barcode,
+               pr.is_active as product_is_active,
                pr.has_sub_unit,
                pr.pieces_per_box
         FROM purchase_invoice_items pi 
@@ -407,11 +408,13 @@ export function registerPurchasesIPC() {
       const tx = raw.transaction(() => {
         const invoice: any = raw.prepare('SELECT * FROM purchase_invoices WHERE id = ?').get(id);
         if (!invoice) throw new Error('الفاتورة غير موجودة');
-        if (invoice.status === 'cancelled') throw new Error('الفاتورة ملغاة مسبقاً');
         AccountingEngine._checkClosingDate(raw, invoice.date);
         if (invoice.status === 'confirmed') {
           reversePurchaseEffects(raw, id, invoice);
         }
+        // Completely delete corresponding journal entries
+        raw.prepare("DELETE FROM journal_entries WHERE reference_id = ? AND reference_type IN ('purchase_invoice', 'purchase_invoice_adjustment', 'purchase_invoice_reversal')").run(id);
+        // Mark the invoice as cancelled instead of deleting
         raw.prepare("UPDATE purchase_invoices SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").run(id);
       });
       tx.immediate();

@@ -2,13 +2,13 @@
  * App.tsx - SparePartsERP
  * بدون فروع، بدون logistics، بدون sync
  */
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useEffect, lazy, Suspense, useRef } from 'react';
 import { useAuth } from './hooks/useAuth';
 import MainLayout from './shared/components/layout/MainLayout';
 import ErrorBoundary from './shared/components/ui/ErrorBoundary';
 import LoadingSpinner from './shared/components/ui/LoadingSpinner';
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
 import PinLockOverlay from './features/auth/PinLockOverlay';
 import QuickUserSwitcherOverlay from './features/auth/QuickUserSwitcherOverlay';
 import { usePinStore } from './store/pin.store';
@@ -25,17 +25,25 @@ const POSPage = lazy(() => import('./features/sales/POSPage'));
 const PurchasesPage = lazy(() => import('./features/purchases/PurchasesPage'));
 const PurchaseFormPage = lazy(() => import('./features/purchases/PurchaseFormPage'));
 const ExpensesPage = lazy(() => import('./features/expenses/ExpensesPage'));
+
+// Wrapper to key PurchaseFormPage by its ID parameter to trigger clean remount on param change
+function PurchaseFormPageWrapper() {
+  const { id } = useParams();
+  return <PurchaseFormPage key={id || 'new'} />;
+}
 const SettingsPage = lazy(() => import('./features/settings/SettingsPage'));
 const AccountingPage = lazy(() => import('./features/accounting/AccountingPage'));
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) return <PageLoader />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
 function RoleRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <PageLoader />;
   if (!user || !allowedRoles.includes(user.role)) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
@@ -53,6 +61,71 @@ import { useShortcutStore } from './store/shortcutStore';
 export default function App() {
   const navigate = useNavigate();
   const { shortcuts } = useShortcutStore();
+
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const handlePhotoUploaded = (data: { productId: number; filename: string; productName: string }) => {
+      toast.success(`تم استلام صورة جديدة للمنتج "${data.productName}" من الهاتف 📸`, {
+        duration: 5000,
+      });
+    };
+
+    const handleInvoiceUploaded = (data: { filename: string }) => {
+      toast.success('تم استلام صورة فاتورة جديدة من الهاتف! 📄', {
+        duration: 6000,
+        action: {
+          label: 'عرض ومعالجة',
+          onClick: () => navigate('/purchases/new?openImport=true'),
+        }
+      });
+    };
+
+    const handleBarcodeLinked = (data: { productId: number; barcode: string; productName: string }) => {
+      toast.success(`تم ربط باركود جديد (${data.barcode}) للمنتج "${data.productName}" بنجاح 🔗`, {
+        duration: 5000,
+      });
+    };
+
+    const handleBarcodeScanned = (data: { barcode: string; found: boolean; name: string }) => {
+      if (data.found) {
+        const currentPath = window.location.hash || window.location.pathname;
+        const isSpecialPage = currentPath.includes('/pos') || currentPath.includes('/purchases/new');
+        if (!isSpecialPage) {
+          toast.success(`مسح باركود من الهاتف: تم استلام الباركود (${data.barcode}) بنجاح. جاري الانتقال لفاتورة الشراء... 📱`, {
+            duration: 3000,
+          });
+          navigate(`/purchases/new?barcode=${data.barcode}`);
+        }
+      } else {
+        toast.error(`مسح باركود من الهاتف: الباركود (${data.barcode}) غير مسجل في الكمبيوتر ⚠️`, {
+          duration: 5000,
+        });
+      }
+    };
+
+    const handleImportInvoiceJson = (data: { json: string }) => {
+      localStorage.setItem('purchase_import_json_from_mobile', data.json);
+      toast.success('تم استلام تفاصيل الفاتورة من الهاتف! 📄 جاري فتح شاشة المشتريات ومعالجتها...', {
+        duration: 5000,
+      });
+      navigate('/purchases/new?mobileImport=true');
+    };
+
+    window.electronAPI.on('mobile:photo-uploaded', handlePhotoUploaded);
+    window.electronAPI.on('mobile:invoice-uploaded', handleInvoiceUploaded);
+    window.electronAPI.on('mobile:barcode-linked', handleBarcodeLinked);
+    window.electronAPI.on('mobile:barcode-scanned', handleBarcodeScanned);
+    window.electronAPI.on('mobile:import-invoice-json', handleImportInvoiceJson);
+
+    return () => {
+      window.electronAPI?.removeAllListeners('mobile:photo-uploaded');
+      window.electronAPI?.removeAllListeners('mobile:invoice-uploaded');
+      window.electronAPI?.removeAllListeners('mobile:barcode-linked');
+      window.electronAPI?.removeAllListeners('mobile:barcode-scanned');
+      window.electronAPI?.removeAllListeners('mobile:import-invoice-json');
+    };
+  }, [navigate]);
 
   useEffect(() => {
     const matches = (e: KeyboardEvent, shortcutStr: string) => {
@@ -169,8 +242,8 @@ export default function App() {
                           <Route path="/suppliers" element={<SuppliersPage />} />
                           <Route path="/sales" element={<SalesPage />} />
                           <Route path="/purchases" element={<PurchasesPage />} />
-                          <Route path="/purchases/new" element={<PurchaseFormPage />} />
-                          <Route path="/purchases/:id" element={<PurchaseFormPage />} />
+                          <Route path="/purchases/new" element={<PurchaseFormPageWrapper />} />
+                          <Route path="/purchases/:id" element={<PurchaseFormPageWrapper />} />
                           <Route path="/expenses" element={<ExpensesPage />} />
                           <Route path="/accounting" element={<AccountingPage />} />
                           <Route path="/settings" element={<SettingsPage />} />

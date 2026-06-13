@@ -1,7 +1,7 @@
 /**
  * PurchasesPage — صفحة إدارة فواتير المشتريات
  */
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { Search, Plus, FileText, Trash2, AlertTriangle } from 'lucide-react';
@@ -9,6 +9,8 @@ import ToolbarButton from '../../shared/components/ui/ToolbarButton';
 import { useShortcutStore } from '../../store/shortcutStore';
 import { showSuccess, showError, showNav } from '../../shared/utils/notifications';
 import { motion, AnimatePresence } from 'framer-motion';
+import ERPTable, { useColumnManager } from '../../shared/components/table';
+import type { ERPColumn } from '../../shared/components/table/types';
 
 export default function PurchasesPage() {
   const { hasPermission } = useAuth();
@@ -63,9 +65,10 @@ export default function PurchasesPage() {
   const [sortKey, setSortKey] = useState<PurchasesSortKey | null>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>('desc');
 
-  const toggleSort = useCallback((key: PurchasesSortKey) => {
-    if (sortKey !== key) {
-      setSortKey(key);
+  const toggleSort = useCallback((key: string) => {
+    const k = key as PurchasesSortKey;
+    if (sortKey !== k) {
+      setSortKey(k);
       setSortDir('asc');
     } else {
       setSortDir(d => {
@@ -111,7 +114,7 @@ export default function PurchasesPage() {
     }
   };
 
-  const deleteDraft = async (id: number) => {
+  const deleteDraft = useCallback(async (id: number) => {
     try {
       const res = await window.electronAPI.invoke('db:purchases:deleteDraft', id);
       if (res.success) {
@@ -123,7 +126,7 @@ export default function PurchasesPage() {
     } catch {
       showError('حدث خطأ أثناء الحذف');
     }
-  };
+  }, []);
 
   const deleteAllDrafts = async () => {
     setDeleteLoading(true);
@@ -141,6 +144,153 @@ export default function PurchasesPage() {
     } finally {
       setDeleteLoading(false);
     }
+  };
+
+  // ── تعريف الأعمدة المشتركة مع دعم Resize & Drag & Hide ──
+  const DEFAULT_COLUMNS = useMemo<ERPColumn<any>[]>(() => {
+    const cols: ERPColumn<any>[] = [
+      {
+        key: 'supplier_invoice_number',
+        label: 'رقم الفاتورة',
+        sortable: true,
+        width: 140,
+        resizable: true,
+        draggable: true,
+        render: (inv) => (
+          <span className="font-numbers font-bold text-primary_blue text-base">
+            {inv.supplier_invoice_number || inv.invoice_number || '-'}
+          </span>
+        ),
+      },
+      {
+        key: 'date',
+        label: 'التاريخ',
+        sortable: true,
+        width: 140,
+        resizable: true,
+        draggable: true,
+        render: (inv) => (
+          <span className="font-bold font-numbers text-text_secondary">
+            {new Date(inv.date).toLocaleDateString('en-GB')}
+          </span>
+        ),
+      },
+      {
+        key: 'supplier_name',
+        label: 'المورد',
+        sortable: true,
+        flex: 1,
+        resizable: true,
+        draggable: true,
+        render: (inv) => (
+          <span className="font-bold text-text_primary">
+            {inv.supplier_name || 'مورد عام'}
+          </span>
+        ),
+      },
+      {
+        key: 'total',
+        label: 'الإجمالي',
+        sortable: true,
+        align: 'center',
+        width: 140,
+        resizable: true,
+        draggable: true,
+        render: (inv) => (
+          <span className="font-numbers font-bold text-text_primary">
+            {inv.total.toFixed(2)} د.ج
+          </span>
+        ),
+      },
+      {
+        key: 'paid',
+        label: 'المدفوع',
+        sortable: true,
+        align: 'center',
+        width: 140,
+        resizable: true,
+        draggable: true,
+        render: (inv) => (
+          <span className="font-bold font-numbers text-danger_red">
+            {inv.paid.toFixed(2)} د.ج
+          </span>
+        ),
+      },
+      {
+        key: 'remaining',
+        label: 'المتبقي',
+        align: 'center',
+        width: 140,
+        resizable: true,
+        draggable: true,
+        render: (inv) => (
+          <span className={`font-numbers font-bold ${inv.total - inv.paid > 0 ? 'text-orange-500' : 'text-success_green'}`}>
+            {(inv.total - inv.paid).toFixed(2)} د.ج
+          </span>
+        ),
+      },
+      {
+        key: 'status',
+        label: 'حالة الدفع',
+        align: 'center',
+        width: 140,
+        resizable: true,
+        draggable: true,
+        render: (inv) => {
+          if (inv.status === 'draft') {
+            return <span className="text-warning_amber text-xs font-bold bg-warning_amber/10 px-2 py-1 rounded flex items-center justify-center gap-1"><FileText size={12} />مسودة</span>;
+          }
+          if (inv.paid >= inv.total) {
+            return <span className="text-success_green text-xs font-bold bg-success_green/10 px-2 py-1 rounded">مدفوع</span>;
+          }
+          if (inv.paid > 0) {
+            return <span className="text-warning_amber text-xs font-bold bg-warning_amber/10 px-2 py-1 rounded">متبقي</span>;
+          }
+          return <span className="text-danger_red text-xs font-bold bg-danger_red/10 px-2 py-1 rounded">غير مدفوع</span>;
+        },
+      },
+    ];
+
+    if (isDraftMode) {
+      cols.push({
+        key: 'delete_draft',
+        label: 'حذف',
+        align: 'center',
+        width: 60,
+        resizable: false,
+        draggable: false,
+        render: (inv) => (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteDraft(inv.id);
+            }}
+            className="p-1.5 text-text_muted hover:text-danger_red hover:bg-danger_red/10 rounded-lg transition-all active:scale-90"
+          >
+            <Trash2 size={16} />
+          </button>
+        ),
+      });
+    }
+
+    return cols;
+  }, [isDraftMode, deleteDraft]);
+
+  const storageKey = isDraftMode ? 'erp_columns_purchases_list_draft_v1' : 'erp_columns_purchases_list_v1';
+
+  const {
+    columns,
+    allColumns,
+    setWidth,
+    toggleHide,
+    reorder,
+    reset,
+    showAll,
+  } = useColumnManager<ERPColumn<any>>(storageKey, DEFAULT_COLUMNS);
+
+  const handleRowClick = (inv: any) => {
+    showNav(inv.status === 'draft' ? 'إكمال المسودة' : 'عرض الفاتورة');
+    navigate('/purchases/' + inv.id);
   };
 
   return (
@@ -179,157 +329,82 @@ export default function PurchasesPage() {
         )}
       </AnimatePresence>
 
-      <div className="flex-1 bg-background_secondary border border-border_default rounded-2xl overflow-hidden flex flex-col">
-        {/* Single Row Toolbar: Search + Total + Drafts Toggle + Actions */}
-        <div className="flex items-center justify-between px-8 h-24 shrink-0 bg-background_primary shadow-sm border-b border-border_default/20">
-          <div className="relative flex-1 max-w-[600px]">
-            <Search size={22} className="absolute right-4 top-1/2 -translate-y-1/2 text-primary_blue/60" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder={`بحث (رقم الفاتورة، المورد)... (${shortcuts.search_product})`}
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              className="w-full bg-background_card border border-border_default rounded-xl h-14 pr-14 pl-4 text-base text-text_primary font-bold placeholder:text-text_muted/50 focus:border-primary_blue focus:ring-2 focus:ring-primary_blue/20 outline-none transition-all"
-            />
-          </div>
-          <div className="flex items-center gap-4 shrink-0">
-            <div className="flex items-center gap-3 px-6 py-3 bg-background_card border border-border_default rounded-xl text-text_primary">
-              <span className="text-sm font-bold text-text_muted">{isDraftMode ? 'عدد المسودات:' : 'إجمالي المشتريات:'}</span>
-              <span className="font-numbers font-black text-primary_blue text-xl">{total}</span>
-            </div>
+      <div className="flex-1 border border-black/[0.07] dark:border-white/[0.06] rounded-2xl overflow-hidden flex flex-col">
+        <ERPTable
+          data={invoices}
+          columns={columns}
+          loading={loading}
+          rowKey="id"
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onSort={toggleSort}
+          onRowClick={handleRowClick}
+          className="h-full"
+          minRows={18}
+          onResizeColumn={setWidth}
+          onReorderColumns={reorder}
+          onToggleHideColumn={toggleHide}
+          onResetColumns={reset}
+          onShowAllColumns={showAll}
+          hasHiddenColumns={allColumns.some(c => c.hidden)}
+          toolbar={
+            <div className="flex items-center justify-between px-8 h-24 shrink-0 bg-white/30 dark:bg-black/30 backdrop-blur-xl border-b border-black/[0.07] dark:border-white/[0.07]">
+              <div className="relative flex-1 max-w-[600px]">
+                <Search size={22} className="absolute right-4 top-1/2 -translate-y-1/2 text-primary_blue/60" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder={`بحث (رقم الفاتورة، المورد)... (${shortcuts.search_product})`}
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                  className="w-full bg-background_card border border-border_default rounded-xl h-14 pr-14 pl-4 text-base text-text_primary font-bold placeholder:text-text_muted/50 focus:border-primary_blue focus:ring-2 focus:ring-primary_blue/20 outline-none transition-all"
+                />
+              </div>
+              <div className="flex items-center gap-4 shrink-0">
+                <div className="flex items-center gap-3 px-6 py-3 bg-background_card border border-border_default rounded-xl text-text_primary">
+                  <span className="text-sm font-bold text-text_muted">{isDraftMode ? 'عدد المسودات:' : 'إجمالي المشتريات:'}</span>
+                  <span className="font-numbers font-black text-primary_blue text-xl">{total}</span>
+                </div>
 
-            {/* Drafts Toggle Button */}
-            <button onClick={() => setIsDraftMode(!isDraftMode)}
-              className={`relative flex items-center gap-2 px-5 h-14 rounded-xl font-bold text-base border-2 transition-all ${
-                isDraftMode 
-                  ? 'bg-warning_amber/20 text-warning_amber border-warning_amber/50 shadow-[0_0_15px_rgba(245,158,11,0.15)]' 
-                  : 'bg-background_card text-text_muted border-border_default hover:text-text_primary hover:border-border_default'
-              }`}
-            >
-              <FileText size={20} />
-              <span>المسودات</span>
-              {isDraftMode && (
-                <span className="w-2 h-2 rounded-full bg-warning_amber animate-pulse" />
-              )}
-            </button>
+                {/* Drafts Toggle Button */}
+                <button onClick={() => setIsDraftMode(!isDraftMode)}
+                  className={`relative flex items-center gap-2 px-5 h-14 rounded-xl font-bold text-base border-2 transition-all ${
+                    isDraftMode 
+                      ? 'bg-warning_amber/20 text-warning_amber border-warning_amber/50 shadow-[0_0_15px_rgba(245,158,11,0.15)]' 
+                      : 'bg-background_card text-text_muted border-border_default hover:text-text_primary hover:border-border_default'
+                  }`}
+                >
+                  <FileText size={20} />
+                  <span>المسودات</span>
+                  {isDraftMode && (
+                    <span className="w-2 h-2 rounded-full bg-warning_amber animate-pulse" />
+                  )}
+                </button>
 
-            {/* Delete All Drafts Button — visible only in draft mode */}
-            {isDraftMode && invoices.length > 0 && (
-              <button onClick={() => setShowDeleteAllModal(true)}
-                className="flex items-center gap-2 px-4 h-14 rounded-xl font-bold text-base bg-danger_red/10 text-danger_red border-2 border-danger_red/30 hover:bg-danger_red/20 transition-all"
-              >
-                <Trash2 size={18} />
-                حذف الكل
-              </button>
-            )}
-
-            {hasPermission('create_purchases') && (
-              <ToolbarButton
-                icon={<Plus size={22} />}
-                label="إدخال جديد"
-                onClick={() => navigate('/purchases/new')}
-                className="text-primary_blue border-primary_blue/40 bg-primary_blue/10 hover:bg-primary_blue/20 h-14 px-8 text-base font-bold"
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="overflow-y-scroll flex-1 custom-scrollbar">
-          <table className="w-full text-sm text-right border-collapse">
-            <thead className="sticky top-0 z-30 bg-gradient-to-b from-table_header_from to-table_header_to border-b border-black/30 dark:border-border_default shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative">
-              <tr className="h-[52px]">
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('supplier_invoice_number')}>
-                  رقم الفاتورة{sortKey === 'supplier_invoice_number' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'supplier_invoice_number' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
-                </th>
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('date')}>
-                  التاريخ{sortKey === 'date' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'date' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
-                </th>
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('supplier_name')}>
-                  المورد{sortKey === 'supplier_name' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'supplier_name' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
-                </th>
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default text-center cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('total')}>
-                  الإجمالي{sortKey === 'total' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'total' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
-                </th>
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default text-center cursor-pointer hover:bg-background_card select-none transition-all duration-200" onClick={() => toggleSort('paid')}>
-                  المدفوع{sortKey === 'paid' && sortDir === 'asc' ? <span className="mr-1 text-emerald-400">↑</span> : sortKey === 'paid' && sortDir === 'desc' ? <span className="mr-1 text-red-400">↓</span> : null}
-                </th>
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default text-center select-none">المتبقي</th>
-                <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide border-l border-black/30 dark:border-border_default text-center select-none">حالة الدفع</th>
-                {isDraftMode && (
-                  <th className="px-3 font-bold text-[13px] text-text_primary uppercase tracking-wide text-center select-none w-16">حذف</th>
+                {/* Delete All Drafts Button — visible only in draft mode */}
+                {isDraftMode && invoices.length > 0 && (
+                  <button onClick={() => setShowDeleteAllModal(true)}
+                    className="flex items-center gap-2 px-4 h-14 rounded-xl font-bold text-base bg-danger_red/10 text-danger_red border-2 border-danger_red/30 hover:bg-danger_red/20 transition-all"
+                  >
+                    <Trash2 size={18} />
+                    حذف الكل
+                  </button>
                 )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border_default">
-              {loading ? (
-                <tr className="h-11"><td colSpan={isDraftMode ? 8 : 7} className="px-4 py-8 text-center text-text_muted bg-background_secondary">جاري التحميل...</td></tr>
-              ) : invoices.length === 0 ? (
-                <tr className="h-11"><td colSpan={isDraftMode ? 8 : 7} className="px-4 py-8 text-center text-text_muted bg-background_secondary">
-                  {isDraftMode ? 'لا توجد مسودات' : 'لا توجد مشتريات'}
-                </td></tr>
-              ) : (
-                <>
-                  {invoices.map((inv, idx) => (
-                    <tr key={inv.id} className={`h-11 hover:bg-primary_blue/5 transition-colors group cursor-pointer ${idx % 2 === 0 ? 'bg-background_secondary' : 'bg-sidebar_bg'}`}
-                      onClick={() => {
-                        showNav(inv.status === 'draft' ? 'إكمال المسودة' : 'عرض الفاتورة');
-                        navigate('/purchases/' + inv.id);
-                      }}
-                    >
-                      <td className="px-3 py-2 font-numbers font-bold text-primary_blue text-base border-l border-border_default">{inv.supplier_invoice_number || inv.invoice_number || '-'}</td>
-                      <td className="px-3 py-2 font-bold font-numbers text-text_secondary border-l border-border_default">{new Date(inv.date).toLocaleDateString('en-GB')}</td>
-                      <td className="px-3 py-2 font-bold text-text_primary border-l border-border_default">{inv.supplier_name || 'مورد عام'}</td>
-                      <td className="px-3 py-2 font-numbers text-center font-bold text-text_primary border-l border-border_default">
-                        {inv.total.toFixed(2)} د.ج
-                      </td>
-                      <td className="px-3 py-2 font-bold font-numbers text-center text-danger_red border-l border-border_default">
-                        {inv.paid.toFixed(2)} د.ج
-                      </td>
-                      <td className={`px-3 py-2 font-numbers text-center font-bold border-l border-border_default ${inv.total - inv.paid > 0 ? 'text-orange-500' : 'text-success_green'}`}>
-                        {(inv.total - inv.paid).toFixed(2)} د.ج
-                      </td>
-                      <td className="px-3 py-2 text-center border-l border-border_default">
-                        {inv.status === 'draft' ? (
-                          <span className="text-warning_amber text-xs font-bold bg-warning_amber/10 px-2 py-1 rounded flex items-center justify-center gap-1"><FileText size={12} />مسودة</span>
-                        ) : inv.paid >= inv.total ? (
-                          <span className="text-success_green text-xs font-bold bg-success_green/10 px-2 py-1 rounded">مدفوع</span>
-                        ) : inv.paid > 0 && inv.paid < inv.total ? (
-                          <span className="text-warning_amber text-xs font-bold bg-warning_amber/10 px-2 py-1 rounded">متبقي</span>
-                        ) : (
-                          <span className="text-danger_red text-xs font-bold bg-danger_red/10 px-2 py-1 rounded">غير مدفوع</span>
-                        )}
-                      </td>
-                      {isDraftMode && (
-                        <td className="px-2 py-2 text-center">
-                          <button onClick={(e) => { e.stopPropagation(); deleteDraft(inv.id); }}
-                            className="p-1.5 text-text_muted hover:text-danger_red hover:bg-danger_red/10 rounded-lg transition-all active:scale-90">
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                  {/* Ghost Rows — داخل نفس <tbody> لتطابق خطوط الأعمدة */}
-                  {Array.from({ length: Math.max(0, 18 - invoices.length) }).map((_, idx) => (
-                    <tr key={`ghost-${idx}`} className={`h-11 pointer-events-none ${(invoices.length + idx) % 2 === 0 ? 'bg-background_secondary' : 'bg-sidebar_bg'}`}>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      <td className="border-l border-border_default">&nbsp;</td>
-                      {isDraftMode && <td>&nbsp;</td>}
-                    </tr>
-                  ))}
-                </>
-              )}
-            </tbody>
-          </table>
-        </div>
 
+
+
+                {hasPermission('create_purchases') && (
+                  <ToolbarButton
+                    icon={<Plus size={22} />}
+                    label="إدخال جديد"
+                    onClick={() => navigate('/purchases/new')}
+                    className="text-primary_blue border-primary_blue/40 bg-primary_blue/10 hover:bg-primary_blue/20 h-14 px-8 text-base font-bold"
+                  />
+                )}
+              </div>
+            </div>
+          }
+        />
       </div>
     </div>
   );

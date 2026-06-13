@@ -2,7 +2,9 @@
  * Products IPC Handlers — CRUD كامل للمنتجات
  * يعمل مع better-sqlite3 مباشرةً (raw SQL)
  */
-import { ipcMain } from 'electron';
+import { ipcMain, app } from 'electron';
+import fs from 'fs';
+import path from 'path';
 import { DatabaseService } from '../services/database.service';
 import { AccountingEngine } from '../services/accounting.service';
 
@@ -118,12 +120,12 @@ export function registerProductsIPC() {
         }
 
         if (matchingIds.length > 0) {
-          where += ` AND (p.id IN (${matchingIds.join(',')}) OR p.barcode = ? OR p.internal_code = ?)`;
-          params.push(query, query);
+          where += ` AND (p.id IN (${matchingIds.join(',')}) OR p.barcode = ? OR p.internal_code = ? OR p.id IN (SELECT product_id FROM product_barcodes WHERE barcode = ?))`;
+          params.push(query, query, query);
         } else {
-          where += ` AND (p.name LIKE ? OR p.name_fr LIKE ? OR p.barcode LIKE ? OR p.internal_code LIKE ?)`;
+          where += ` AND (p.name LIKE ? OR p.name_fr LIKE ? OR p.barcode LIKE ? OR p.internal_code LIKE ? OR p.id IN (SELECT product_id FROM product_barcodes WHERE barcode LIKE ?))`;
           const s = `%${query}%`;
-          params.push(s, s, s, s);
+          params.push(s, s, s, s, s);
         }
       }
       if (filters?.category_id) {
@@ -318,13 +320,13 @@ export function registerProductsIPC() {
 
       if (matchingIds.length > 0) {
         // If FTS has matches, match by FTS product IDs or exact barcode/internal_code (in case of direct scan)
-        where += ` AND (p.id IN (${matchingIds.join(',')}) OR p.barcode = ? OR p.internal_code = ?)`;
-        params.push(query, query);
+        where += ` AND (p.id IN (${matchingIds.join(',')}) OR p.barcode = ? OR p.internal_code = ? OR p.id IN (SELECT product_id FROM product_barcodes WHERE barcode = ?))`;
+        params.push(query, query, query);
       } else {
         // If no FTS matches found, do standard LIKE fallback
-        where += ` AND (p.name LIKE ? OR p.name_fr LIKE ? OR p.barcode LIKE ? OR p.internal_code LIKE ?)`;
+        where += ` AND (p.name LIKE ? OR p.name_fr LIKE ? OR p.barcode LIKE ? OR p.internal_code LIKE ? OR p.id IN (SELECT product_id FROM product_barcodes WHERE barcode LIKE ?))`;
         const s = `%${query}%`;
-        params.push(s, s, s, s);
+        params.push(s, s, s, s, s);
       }
 
       const products = raw.prepare(`
@@ -709,12 +711,12 @@ export function registerProductsIPC() {
         }
 
         if (matchingIds.length > 0) {
-          where += ` AND (p.id IN (${matchingIds.join(',')}) OR p.barcode = ? OR p.internal_code = ?)`;
-          params.push(query, query);
+          where += ` AND (p.id IN (${matchingIds.join(',')}) OR p.barcode = ? OR p.internal_code = ? OR p.id IN (SELECT product_id FROM product_barcodes WHERE barcode = ?))`;
+          params.push(query, query, query);
         } else {
-          where += ` AND (p.name LIKE ? OR p.name_fr LIKE ? OR p.barcode LIKE ? OR p.internal_code LIKE ?)`;
+          where += ` AND (p.name LIKE ? OR p.name_fr LIKE ? OR p.barcode LIKE ? OR p.internal_code LIKE ? OR p.id IN (SELECT product_id FROM product_barcodes WHERE barcode LIKE ?))`;
           const s = `%${query}%`;
-          params.push(s, s, s, s);
+          params.push(s, s, s, s, s);
         }
       }
       if (filters?.category_id) {
@@ -1003,6 +1005,65 @@ export function registerProductsIPC() {
         }
       }
 
+      // Propagate name and barcode updates to related tables (fitments, usage, and draft invoices)
+      if (data.name !== undefined || data.barcode !== undefined) {
+        // 1. Update product_fitments table
+        const pfCols: string[] = [];
+        const pfVals: any[] = [];
+        if (data.name !== undefined) {
+          pfCols.push('product_name = ?');
+          pfVals.push(data.name);
+        }
+        if (data.barcode !== undefined) {
+          pfCols.push('product_barcode = ?');
+          pfVals.push(data.barcode);
+        }
+        if (pfCols.length > 0) {
+          pfVals.push(id);
+          raw.prepare(`UPDATE product_fitments SET ${pfCols.join(', ')} WHERE product_id = ?`).run(...pfVals);
+        }
+
+        // 2. Update usage tables
+        const usageCols: string[] = [];
+        const usageVals: any[] = [];
+        if (data.name !== undefined) {
+          usageCols.push('product_name = ?');
+          usageVals.push(data.name);
+        }
+        if (data.barcode !== undefined) {
+          usageCols.push('product_barcode = ?');
+          usageVals.push(data.barcode);
+        }
+        if (usageCols.length > 0) {
+          usageVals.push(id);
+          raw.prepare(`UPDATE search_usage SET ${usageCols.join(', ')} WHERE product_id = ?`).run(...usageVals);
+          raw.prepare(`UPDATE product_usage SET ${usageCols.join(', ')} WHERE product_id = ?`).run(...usageVals);
+        }
+
+        // 3. Update snapshots in Draft invoices (Sales & Purchases)
+        if (data.name !== undefined) {
+          raw.prepare(`
+            UPDATE sales_invoice_items 
+            SET product_name_snapshot = ? 
+            WHERE product_id = ? AND invoice_id IN (SELECT id FROM sales_invoices WHERE status = 'draft')
+          `).run(data.name, id);
+
+          raw.prepare(`
+            UPDATE purchase_invoice_items 
+            SET product_name_snapshot = ? 
+            WHERE product_id = ? AND invoice_id IN (SELECT id FROM purchase_invoices WHERE status = 'draft')
+          `).run(data.name, id);
+        }
+
+        if (data.barcode !== undefined) {
+          raw.prepare(`
+            UPDATE sales_invoice_items 
+            SET product_barcode_snapshot = ? 
+            WHERE product_id = ? AND invoice_id IN (SELECT id FROM sales_invoices WHERE status = 'draft')
+          `).run(data.barcode, id);
+        }
+      }
+
       raw.exec('COMMIT');
 
       // Recompile search terms for the updated product
@@ -1104,6 +1165,51 @@ export function registerProductsIPC() {
       raw.prepare('UPDATE products SET is_low_stock_muted = ?, updated_at = datetime(\'now\') WHERE id = ?').run(newVal, productId);
       return { success: true, data: { is_low_stock_muted: newVal } };
     } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ── Get Product Images (NEW) ─────────────────────────────────
+  ipcMain.handle('db:products:getImages', async (_e, productId: number) => {
+    try {
+      const raw = db();
+      const images = raw.prepare(`
+        SELECT id, file_path as filePath, is_primary as isPrimary, created_at as createdAt
+        FROM product_images
+        WHERE product_id = ?
+        ORDER BY is_primary DESC, created_at DESC
+      `).all(productId);
+      return { success: true, data: images };
+    } catch (error: any) {
+      console.error('[Products IPC] Get product images error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ── Delete Product Image (NEW) ───────────────────────────────
+  ipcMain.handle('db:products:deleteImage', async (_e, id: number) => {
+    try {
+      const raw = db();
+      const img = raw.prepare('SELECT file_path FROM product_images WHERE id = ?').get(id) as { file_path: string } | undefined;
+      if (!img) return { success: false, error: 'الصورة غير موجودة' };
+
+      // Delete from database
+      raw.prepare('DELETE FROM product_images WHERE id = ?').run(id);
+
+      // Delete from disk
+      try {
+        const baseDir = path.join(app.getPath('userData'), 'SparePartsERP');
+        const filePath = path.join(baseDir, 'product_images', img.file_path);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (fsErr) {
+        console.warn('[Products IPC] Failed to delete file on disk:', fsErr);
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('[Products IPC] Delete product image error:', error);
       return { success: false, error: error.message };
     }
   });

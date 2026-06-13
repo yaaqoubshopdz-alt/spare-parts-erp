@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Car, X, Plus, Search, Check } from 'lucide-react';
+import { Car, X, Plus, Search, Check, Sparkles, Globe } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { showSuccess, showError } from '../../shared/utils/notifications';
 
 export interface FitmentTag {
@@ -12,9 +13,10 @@ export interface FitmentTag {
 interface CreatableFitmentTagsProps {
   value: FitmentTag[];
   onChange: (tags: FitmentTag[]) => void;
+  productName?: string;
 }
 
-export default function CreatableFitmentTags({ value, onChange }: CreatableFitmentTagsProps) {
+export default function CreatableFitmentTags({ value, onChange, productName }: CreatableFitmentTagsProps) {
   const [query, setQuery] = useState('');
   
   // Vehicles dataset from database
@@ -35,6 +37,111 @@ export default function CreatableFitmentTags({ value, onChange }: CreatableFitme
     year_from: '',
     year_to: ''
   });
+
+  const [aiJsonInput, setAiJsonInput] = useState('');
+  const [showAiImport, setShowAiImport] = useState(false);
+
+  const handleOpenAiPrompt = () => {
+    const term = productName || 'هذا المنتج';
+    const promptText = `أعطني توافقات سيارات قطعة الغيار "${term}" ككود JSON مصفوفة كائنات فقط بهذا التنسيق: [{"brand": "Renault", "model": "Symbol"}, {"brand": "Peugeot", "model": "208"}]. لا تكتب أي نص آخر خارج كود JSON.`;
+    const url = `https://www.google.com/search?q=${encodeURIComponent(promptText)}`;
+    window.electronAPI?.invoke('shell:openExternal', url);
+  };
+
+  const handleApplyAIJSON = async () => {
+    if (!aiJsonInput.trim()) {
+      showError('الرجاء إلصاق كود JSON أولاً');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      let cleanInput = aiJsonInput.trim();
+      if (cleanInput.startsWith('```')) {
+        cleanInput = cleanInput.replace(/^```[a-zA-Z]*\n/, '').replace(/\n```$/, '');
+      }
+
+      const parsed = JSON.parse(cleanInput);
+      if (!Array.isArray(parsed)) {
+        showError('يجب أن يكون كود JSON عبارة عن مصفوفة (Array) تحتوي على قطع متوافقة.');
+        setLoading(false);
+        return;
+      }
+
+      const bRes = await window.electronAPI.invoke('db:vehicles:getBrands');
+      const mRes = await window.electronAPI.invoke('db:vehicles:getModels');
+      
+      let currentBrands = bRes.success ? bRes.data : [];
+      let currentModels = mRes.success ? mRes.data : [];
+
+      const newFitments: FitmentTag[] = [...value];
+
+      for (const item of parsed) {
+        const brandName = (item.brand || item.make || '').trim();
+        const modelName = (item.model || '').trim();
+
+        if (!brandName || !modelName) continue;
+
+        let brandObj = currentBrands.find((b: any) => b.name.toLowerCase() === brandName.toLowerCase());
+        let brandId = brandObj ? brandObj.id : null;
+        let finalBrandName = brandObj ? brandObj.name : brandName;
+
+        if (!brandId) {
+          const createBrandRes = await window.electronAPI.invoke('db:vehicles:createBrand', brandName);
+          if (createBrandRes.success) {
+            brandId = createBrandRes.id;
+            currentBrands.push({ id: brandId, name: brandName });
+          } else {
+            console.error('Failed to create brand', brandName);
+            continue;
+          }
+        }
+
+        let modelObj = currentModels.find((m: any) => 
+          m.vehicle_brand_id === brandId && 
+          m.name.toLowerCase() === modelName.toLowerCase()
+        );
+        let modelId = modelObj ? modelObj.id : null;
+        let finalModelName = modelObj ? modelObj.name : modelName;
+
+        if (!modelId) {
+          const createModelRes = await window.electronAPI.invoke('db:vehicles:createModel', {
+            brand_id: brandId,
+            name: modelName
+          });
+          if (createModelRes.success) {
+            modelId = createModelRes.id;
+            currentModels.push({ id: modelId, vehicle_brand_id: brandId, name: modelName, brand_name: finalBrandName });
+          } else {
+            console.error('Failed to create model', modelName);
+            continue;
+          }
+        }
+
+        const exists = newFitments.some(v => v.vehicle_model_id === modelId);
+        if (!exists) {
+          newFitments.push({
+            vehicle_brand_id: brandId,
+            vehicle_model_id: modelId,
+            vehicle_brand_name: finalBrandName,
+            vehicle_model_name: finalModelName
+          });
+        }
+      }
+
+      setBrands(currentBrands);
+      setAllModels(currentModels);
+      
+      onChange(newFitments);
+      showSuccess(`تم استيراد وتطبيق ${newFitments.length - value.length} توافقات جديدة بنجاح!`);
+      setAiJsonInput('');
+      setShowAiImport(false);
+    } catch (e: any) {
+      showError('فشل في تحليل كود JSON. تأكد من صحة التنسيق.');
+      console.error(e);
+    }
+    setLoading(false);
+  };
 
   // Load all brands and models on mount
   useEffect(() => {
@@ -161,6 +268,73 @@ export default function CreatableFitmentTags({ value, onChange }: CreatableFitme
   return (
     <div className="w-full space-y-4 font-cairo">
       
+      {/* ── AI JSON Import Panel ── */}
+      <div className="flex items-center justify-between gap-3 bg-white/[0.02] border border-white/5 p-3 rounded-xl">
+        <span className="text-[12px] font-bold text-text_secondary">توافق السيارات مع هذا المنتج:</span>
+        <button
+          type="button"
+          onClick={() => setShowAiImport(!showAiImport)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+            showAiImport
+              ? 'bg-blue-500/15 text-blue-600 dark:text-blue-300 border-blue-500/30'
+              : 'bg-white/10 dark:bg-white/[0.06] text-text_primary border-white/20 dark:border-white/10 hover:border-blue-500/40'
+          }`}
+        >
+          <Sparkles size={13} className="text-blue-500" />
+          <span>استيراد ذكي للتوافقات (AI JSON)</span>
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {showAiImport && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden bg-blue-500/5 dark:bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 space-y-3 shadow-lg"
+          >
+            <div className="flex justify-between items-center gap-3">
+              <span className="text-xs font-bold text-blue-500 flex items-center gap-1.5">
+                <Sparkles size={14} /> استيراد التوافقات بنقرة واحدة باستخدام كود JSON
+              </span>
+              <button
+                type="button"
+                onClick={handleOpenAiPrompt}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-500/20 rounded-lg text-xs font-bold transition-all cursor-pointer"
+              >
+                <Globe size={13} />
+                <span>توليد كود التوافقات من جوجل AI</span>
+              </button>
+            </div>
+            
+            <textarea
+              value={aiJsonInput}
+              onChange={e => setAiJsonInput(e.target.value)}
+              placeholder={`قم بلصق كود الـ JSON هنا من جوجل AI... مثال:
+[
+  {"brand": "Peugeot", "model": "208"},
+  {"brand": "Renault", "model": "Symbol"}
+]`}
+              dir="ltr"
+              rows={4}
+              className="w-full bg-background_secondary dark:bg-black/20 border border-border_default dark:border-white/10 rounded-lg p-3 text-xs font-numbers outline-none focus:border-blue-500 text-left font-mono"
+            />
+            
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleApplyAIJSON}
+                disabled={loading}
+                className="flex-grow bg-blue-600 hover:bg-blue-500 text-white rounded-lg py-2 text-xs font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              >
+                {loading ? 'جاري الاستيراد وتحديث قاعدة البيانات...' : <><Check size={14}/> تطبيق التوافقات المستوردة</>}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Search Input (Premium Design) ── */}
       <div className="relative">
         <div className="absolute inset-y-0 right-3.5 flex items-center pointer-events-none">

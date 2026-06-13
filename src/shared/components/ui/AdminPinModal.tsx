@@ -53,7 +53,6 @@ export function AdminPinModal({ isOpen, onClose, onSuccess, actionDescription = 
     if (pin.length === 4 && isOpen && !loading) {
       handleSubmit();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin]);
 
   const handleSubmit = async (e?: React.FormEvent) => {

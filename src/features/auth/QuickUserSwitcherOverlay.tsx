@@ -88,7 +88,6 @@ export default function QuickUserSwitcherOverlay() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSwitchOverlay, selectedUser, pin, isShaking]);
 
   // Also close overlay on Escape when on user-list screen
@@ -104,7 +103,6 @@ export default function QuickUserSwitcherOverlay() {
   // Auto-submit at 4 digits
   useEffect(() => {
     if (pin.length === 4 && selectedUser && !isShaking) handleSubmitPin();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin]);
 
   const handleSubmitPin = async () => {

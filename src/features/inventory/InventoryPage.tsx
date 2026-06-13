@@ -9,18 +9,19 @@
  * ✅ min-h-0 / overflow-hidden / flex-1
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { Search, Edit, Trash2, Filter, AlertTriangle, ClipboardList } from 'lucide-react';
 import ToolbarButton from '../../shared/components/ui/ToolbarButton';
 import { useShortcutStore } from '../../store/shortcutStore';
-import ERPTable from '../../shared/components/table/ERPTable';
+import ERPTable, { useColumnManager } from '../../shared/components/table';
 import type { ERPColumn } from '../../shared/components/table/types';
 import { showSuccess, showError } from '../../shared/utils/notifications';
 import AddProductModal from './AddProductModal';
 import AdjustStockModal from './AdjustStockModal';
 import MarkDefectiveModal from './MarkDefectiveModal';
 import InventoryCountPage from './InventoryCountPage';
+import ProductPhotoViewerModal from './ProductPhotoViewerModal';
 
 interface Product {
   id: number;
@@ -61,6 +62,16 @@ export default function InventoryPage() {
   // Defective Modal State
   const [isDefectiveModalOpen, setIsDefectiveModalOpen] = useState(false);
   const [defectiveProduct, setDefectiveProduct] = useState<{ id: number; name: string; current_stock: number } | null>(null);
+
+  // Photo Viewer Modal State
+  const [isPhotoViewerOpen, setIsPhotoViewerOpen] = useState(false);
+  const [photoViewerProduct, setPhotoViewerProduct] = useState<Product | null>(null);
+
+  const handleRowContextMenu = useCallback((e: React.MouseEvent, row: Product) => {
+    e.preventDefault();
+    setPhotoViewerProduct(row);
+    setIsPhotoViewerOpen(true);
+  }, []);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { shortcuts } = useShortcutStore();
@@ -172,14 +183,16 @@ export default function InventoryPage() {
     }
   };
 
-  // ── تعريف الأعمدة (مطابق لـ Purchase/Sales في الشكل) ──
-  const columns: ERPColumn<Product>[] = [
+  // ── تعريف الأعمدة الافتراضية مع دعم التحكم ──
+  const DEFAULT_COLUMNS = useMemo<ERPColumn<Product>[]>(() => [
     {
       key: 'barcode',
       label: 'الباركود',
       sortable: true,
       width: 150,
-      render: (p) => (
+      resizable: true,
+      draggable: true,
+      render: (p: Product) => (
         <span className="font-bold font-numbers text-text_secondary">
           {p.barcode || p.internal_code || '-'}
         </span>
@@ -190,7 +203,9 @@ export default function InventoryPage() {
       label: 'الاسم',
       sortable: true,
       flex: 1,
-      render: (p) => (
+      resizable: true,
+      draggable: true,
+      render: (p: Product) => (
         <div className="flex flex-col" dir="auto">
           <span className="font-bold text-text_primary">{p.name}</span>
           {p.name_fr && <span className="text-xs text-text_muted font-sans block" dir="ltr">{p.name_fr}</span>}
@@ -202,7 +217,9 @@ export default function InventoryPage() {
       label: 'التصنيف',
       sortable: true,
       width: 140,
-      render: (p) => <span className="text-text_muted">{p.category_name || '-'}</span>,
+      resizable: true,
+      draggable: true,
+      render: (p: Product) => <span className="text-text_muted">{p.category_name || '-'}</span>,
     },
     {
       key: 'purchase_price',
@@ -210,7 +227,9 @@ export default function InventoryPage() {
       sortable: true,
       align: 'center',
       width: 130,
-      render: (p) => (
+      resizable: true,
+      draggable: true,
+      render: (p: Product) => (
         <span className="font-bold font-numbers text-warning_amber">
           {p.purchase_price.toFixed(2)} د.ج
         </span>
@@ -222,7 +241,9 @@ export default function InventoryPage() {
       sortable: true,
       align: 'center',
       width: 130,
-      render: (p) => (
+      resizable: true,
+      draggable: true,
+      render: (p: Product) => (
         <span className="font-bold font-numbers text-success_green">
           {p.retail_price.toFixed(2)} د.ج
         </span>
@@ -234,7 +255,9 @@ export default function InventoryPage() {
       sortable: true,
       align: 'center',
       width: 150,
-      render: (p) => {
+      resizable: true,
+      draggable: true,
+      render: (p: Product) => {
         const formatQty = (v: number) => parseFloat(Number(v).toFixed(3));
         return p.has_sub_unit && p.pieces_per_box > 1 ? (
           <div className="flex flex-col items-center gap-1">
@@ -257,7 +280,9 @@ export default function InventoryPage() {
       label: 'إجراءات',
       align: 'center',
       width: 160,
-      render: (p) => (
+      resizable: false,
+      draggable: false,
+      render: (p: Product) => (
         <div className="flex items-center justify-center gap-1">
           <button
             title="تسجيل تالف"
@@ -290,7 +315,17 @@ export default function InventoryPage() {
         </div>
       ),
     },
-  ];
+  ], [handleEdit, handleDelete]);
+
+  const {
+    columns,
+    allColumns,
+    setWidth,
+    toggleHide,
+    reorder,
+    reset,
+    showAll,
+  } = useColumnManager<ERPColumn<Product>>('erp_columns_inventory_v1', DEFAULT_COLUMNS);
 
   // ── Count mode full-screen ──
   if (isCounting) {
@@ -314,10 +349,17 @@ export default function InventoryPage() {
         sortKey={sortKey}
         sortDir={sortDir}
         onSort={toggleSort}
+        onRowContextMenu={handleRowContextMenu}
         className="h-full"
         minRows={18}
+        onResizeColumn={setWidth}
+        onReorderColumns={reorder}
+        onToggleHideColumn={toggleHide}
+        onResetColumns={reset}
+        onShowAllColumns={showAll}
+        hasHiddenColumns={allColumns.some(c => c.hidden)}
         toolbar={
-          <div className="flex items-center justify-between px-8 h-24 shrink-0 bg-background_primary shadow-sm border-b border-border_default/20">
+          <div className="flex items-center justify-between px-8 h-24 shrink-0 bg-white/30 dark:bg-black/30 backdrop-blur-xl border-b border-black/[0.07] dark:border-white/[0.07]">
             <div className="relative flex-1 max-w-[600px]">
               <Search size={22} className="absolute right-4 top-1/2 -translate-y-1/2 text-primary_blue/60" />
               <input
@@ -345,6 +387,7 @@ export default function InventoryPage() {
                 <span className="text-sm font-bold text-text_muted">إجمالي المنتجات:</span>
                 <span className="font-numbers font-black text-primary_blue text-xl">{total}</span>
               </div>
+
               <ToolbarButton
                 icon={<ClipboardList size={22} />}
                 label="جرد"
@@ -375,6 +418,12 @@ export default function InventoryPage() {
         product={defectiveProduct}
         onClose={() => { setIsDefectiveModalOpen(false); setDefectiveProduct(null); }}
         onSuccess={loadProducts}
+      />
+
+      <ProductPhotoViewerModal
+        isOpen={isPhotoViewerOpen}
+        product={photoViewerProduct}
+        onClose={() => { setIsPhotoViewerOpen(false); setPhotoViewerProduct(null); }}
       />
     </div>
   );

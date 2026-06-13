@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { HashRouter } from 'react-router-dom';
 import App from './App';
 import { ThemeProvider } from './shared/components/providers/ThemeProvider';
 import { I18nProvider } from './shared/components/providers/I18nProvider';
@@ -112,8 +112,14 @@ if (typeof window !== 'undefined' && !window.electronAPI) {
               retail_margin: 28.57,
               min_stock_level: 5,
               unit_id: 1,
+              unit_name: 'قطعة',
               category_id: 1,
-              stock: 12,
+              category_name: 'فرامل',
+              brand_name: 'Toyota',
+              total_stock: 12,
+              has_sub_unit: false,
+              pieces_per_box: 1,
+              is_active: true,
               fitments: [{ id: 1, brand_name: 'Toyota', model_name: 'Corolla 2020' }]
             }
           ]
@@ -283,7 +289,7 @@ if (typeof window !== 'undefined' && !window.electronAPI) {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <HashRouter>
       <I18nProvider>
         <AuthProvider>
           <ThemeProvider>
@@ -302,6 +308,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           </ThemeProvider>
         </AuthProvider>
       </I18nProvider>
-    </BrowserRouter>
+    </HashRouter>
   </React.StrictMode>
 );

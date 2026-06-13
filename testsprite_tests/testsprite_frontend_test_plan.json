@@ -1,0 +1,844 @@
+[
+  {
+    "id": "TC001",
+    "title": "Login and reach the dashboard",
+    "description": "Verifies that a valid admin login grants access to the dashboard and protected sections in the same session.",
+    "category": "User Authentication",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the dashboard is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open inventory"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the inventory page is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC002",
+    "title": "Block protected pages without login",
+    "description": "An unauthenticated user is prevented from viewing protected POS, purchase, and directory pages.",
+    "category": "POS & Sales",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /pos"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access to the POS checkout is blocked"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /sales"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access to sales history is blocked"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /purchases"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access to purchases is blocked"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /customers"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access to customers is blocked"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /suppliers"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access to suppliers is blocked"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC003",
+    "title": "Access protected pages after login",
+    "description": "An authenticated user can log in once and navigate to protected sections without losing the session.",
+    "category": "POS & Sales",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open inventory"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open POS checkout"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open purchases"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open customers"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open suppliers"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the protected sections remain accessible in the active session"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the protected pages render successfully"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC004",
+    "title": "Block dashboard access without a session",
+    "description": "Verifies that an unauthenticated user cannot view dashboard content and is routed to the login screen.",
+    "category": "User Authentication",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /dashboard"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access to dashboard content is blocked"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the login screen is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC005",
+    "title": "Create a completed POS sale",
+    "description": "A sales operator can select a customer, add items, apply adjustments, complete payment, and see the sale recorded in sales history.",
+    "category": "POS & Sales",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the POS checkout"
+      },
+      {
+        "type": "action",
+        "description": "Select or create a customer for the sale"
+      },
+      {
+        "type": "action",
+        "description": "Add one or more products to the cart"
+      },
+      {
+        "type": "action",
+        "description": "Apply a discount and tax to the sale"
+      },
+      {
+        "type": "action",
+        "description": "Confirm the payment for the sale"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to view sales history"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the completed sale appears in sales history"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the sales history table is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC006",
+    "title": "View inventory details and part data",
+    "description": "Verifies that an authenticated user can inspect the inventory list and see part, stock, and barcode-related information.",
+    "category": "Inventory Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open inventory"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the inventory list is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify part and barcode data are visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC007",
+    "title": "Complete a purchase invoice",
+    "description": "A purchasing clerk can start a new purchase, choose a supplier, enter item details, confirm the invoice, and see it recorded in purchases.",
+    "category": "Purchase Operations",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open purchases"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to start a new purchase invoice"
+      },
+      {
+        "type": "action",
+        "description": "Select a supplier for the invoice"
+      },
+      {
+        "type": "action",
+        "description": "Enter item details for the purchase invoice"
+      },
+      {
+        "type": "action",
+        "description": "Confirm the purchase invoice"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to return to purchases"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new purchase appears in the purchases ledger"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the purchases ledger is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC008",
+    "title": "Record a sale and verify it appears in history",
+    "description": "A completed POS transaction is preserved and visible when the user opens sales history after checkout.",
+    "category": "POS & Sales",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the POS checkout"
+      },
+      {
+        "type": "action",
+        "description": "Select or create a customer for the sale"
+      },
+      {
+        "type": "action",
+        "description": "Add a product to the cart"
+      },
+      {
+        "type": "action",
+        "description": "Confirm the payment for the sale"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to view sales history"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the completed transaction is visible in sales history"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify sales history is populated"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC009",
+    "title": "Open low-stock items from the dashboard",
+    "description": "Verifies that an authenticated user can review low-stock alerts from the dashboard and reach the low-stock list.",
+    "category": "Dashboard & Summary",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to view low-stock items"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify low-stock items are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify inventory alert information is visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC010",
+    "title": "Manage customer selection during checkout",
+    "description": "A sales operator can start checkout, search for an existing customer or create a new one, and continue with that customer attached to the sale.",
+    "category": "POS & Sales",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the POS checkout"
+      },
+      {
+        "type": "action",
+        "description": "Open the customer selector in the checkout flow"
+      },
+      {
+        "type": "action",
+        "description": "Search for an existing customer or create a new customer"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected customer is attached to the current sale"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify checkout can continue with the chosen customer"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC011",
+    "title": "Review customer statements",
+    "description": "An authenticated user can open the customer directory and review customer balances and ledger activity.",
+    "category": "Customer & Supplier Directory",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open customers"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the customer list is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify customer balance and ledger activity are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC012",
+    "title": "Review supplier statements",
+    "description": "An authenticated user can open the supplier directory and review supplier balances and ledger activity.",
+    "category": "Customer & Supplier Directory",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open suppliers"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the supplier list is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify supplier balance and ledger activity are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC013",
+    "title": "Review low-stock items",
+    "description": "Verifies that an authenticated user can open the low-stock view and see items below the safety threshold.",
+    "category": "Inventory Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open low-stock items"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the low-stock list is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify low-stock quantities are visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC014",
+    "title": "View accounting reports as an authenticated user",
+    "description": "This test verifies that an authenticated user can open accounting reports and review balance sheet and income statement information.",
+    "category": "Accounting Reports",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the accounting page"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify balance sheet information is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify income statement totals are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC015",
+    "title": "Update application settings and save the changes",
+    "description": "This test verifies that an authenticated administrator can open settings, change application preferences, and see the updated configuration reflected in the UI.",
+    "category": "Settings Manager",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the settings page"
+      },
+      {
+        "type": "action",
+        "description": "Change an application preference to a valid new value"
+      },
+      {
+        "type": "action",
+        "description": "Save the settings"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the updated setting is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a success confirmation is visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC016",
+    "title": "Record an operational expense and see the cash balance update",
+    "description": "This test verifies that an authenticated user can create an expense entry and then see the updated cash balance in the expenses workflow.",
+    "category": "Expenses & Cashbox",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the expenses page"
+      },
+      {
+        "type": "action",
+        "description": "Create a new expense entry with valid details and submit it"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new expense entry is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the cash balance is updated"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC017",
+    "title": "Review user and printer preferences in settings",
+    "description": "This test verifies that an authenticated administrator can view user settings and printer options in the settings manager.",
+    "category": "Settings Manager",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the settings page"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user settings are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify printer options are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC018",
+    "title": "Review existing expenses in the cashbox view",
+    "description": "This test verifies that an authenticated user can open the expenses page and review existing expense and cashbox information.",
+    "category": "Expenses & Cashbox",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the expenses page"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify expense records are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify cashbox balance information is displayed"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC019",
+    "title": "Reject invalid credentials",
+    "description": "Verifies that submitting invalid login credentials keeps the user on the login screen and shows an authentication error.",
+    "category": "User Authentication",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with invalid-user"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with invalid-password"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an authentication error is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the login screen remains visible"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC020",
+    "title": "Protect settings from unauthenticated access",
+    "description": "This test verifies that an unauthenticated user cannot access settings and is redirected or denied access.",
+    "category": "Settings Manager",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /settings"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access is denied or the login screen is shown"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC021",
+    "title": "Protect accounting reports from unauthenticated access",
+    "description": "This test verifies that an unauthenticated user cannot access accounting reports and is redirected or denied access.",
+    "category": "Accounting Reports",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /accounting"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access is denied or the login screen is shown"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC022",
+    "title": "Protect the expenses page from unauthenticated access",
+    "description": "This test verifies that an unauthenticated user cannot access the expenses page and is redirected or denied access.",
+    "category": "Expenses & Cashbox",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /expenses"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access is denied or the login screen is shown"
+      }
+    ],
+    "priority": "Low"
+  }
+]

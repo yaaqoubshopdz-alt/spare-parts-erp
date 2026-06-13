@@ -24,6 +24,7 @@ export interface InvoiceItem {
   has_sub_unit?: boolean;
   pieces_per_box?: number;
   unit_name?: string;
+  product_is_active?: number;
 }
 
 export interface Workspace {
@@ -95,11 +96,33 @@ const DEFAULT_WORKSPACE_STATE = (id: string): Workspace => ({
 
 export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
   const defaultId = `workspace-${Date.now()}`;
-  const initialState = {
-    workspaces: { [defaultId]: DEFAULT_WORKSPACE_STATE(defaultId) },
-    activeId: defaultId,
-    isSwitcherOpen: false,
+  
+  const getInitialState = () => {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem('bolbul-invoice-workspaces');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed.workspaces && Object.keys(parsed.workspaces).length > 0) {
+            return {
+              workspaces: parsed.workspaces,
+              activeId: parsed.activeId || Object.keys(parsed.workspaces)[0],
+              isSwitcherOpen: false,
+            };
+          }
+        } catch (e) {
+          console.error('Failed to parse bolbul-invoice-workspaces:', e);
+        }
+      }
+    }
+    return {
+      workspaces: { [defaultId]: DEFAULT_WORKSPACE_STATE(defaultId) },
+      activeId: defaultId,
+      isSwitcherOpen: false,
+    };
   };
+
+  const initialState = getInitialState();
 
   const persistState = (workspaces: Record<string, Workspace>, activeId: string | null) => {
     if (typeof localStorage !== 'undefined') {

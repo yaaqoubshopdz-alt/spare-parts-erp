@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Save, Printer, Plus, Trash2, FolderOpen, Search, AlertCircle, CheckCircle2, Banknote, Calendar, Hash, User, XCircle, FileText } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import ToolbarButton from '../ui/ToolbarButton';
 import { useWorkspaceStore } from '../../../store/workspaceStore';
 import { useAppStore } from '../../../store/app.store';
 import { useTranslation } from 'react-i18next';
 import { useShortcutStore } from '../../../store/shortcutStore';
+import { useSmoothScroll } from '../../hooks/useSmoothScroll';
 
 interface ProInvoiceLayoutProps {
   title: string;
@@ -76,8 +78,10 @@ export default function ProInvoiceLayout({
 }: ProInvoiceLayoutProps) {
   const { t } = useTranslation();
   const [isSearchExpanded, setIsSearchExpanded] = React.useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showNotes, setShowNotes] = React.useState(!!notes);
   const searchContainerRef = React.useRef<HTMLDivElement>(null);
+  const scrollRef = useSmoothScroll<HTMLDivElement>();
   const shortcuts = useShortcutStore(state => state.shortcuts);
 
   const [categories, setCategories] = React.useState<any[]>([]);
@@ -138,17 +142,21 @@ export default function ProInvoiceLayout({
 
   let glowColor = 'from-primary_blue';
   let glowOpacity = 'opacity-[0.03]';
+  let textGlowClass = 'drop-shadow-[0_0_40px_rgba(37,99,235,0.3)]'; // Default blue glow when total is 0
 
   if (totalAmount > 0) {
     if (paidAmount >= totalAmount) {
       glowColor = 'from-success_green';
       glowOpacity = 'opacity-[0.04]';
+      textGlowClass = 'drop-shadow-[0_0_40px_rgba(16,185,129,0.55)]'; // Green glow (fully paid)
     } else if (paidAmount > 0) {
       glowColor = 'from-warning_amber';
       glowOpacity = 'opacity-[0.04]';
+      textGlowClass = 'drop-shadow-[0_0_40px_rgba(245,158,11,0.55)]'; // Orange/Amber glow (partially paid)
     } else {
       glowColor = 'from-danger_red';
       glowOpacity = 'opacity-[0.035]';
+      textGlowClass = 'drop-shadow-[0_0_40px_rgba(239,68,68,0.55)]'; // Red glow (unpaid)
     }
   }
 
@@ -165,10 +173,10 @@ export default function ProInvoiceLayout({
   }, [isSearchExpanded, showSuggestions, showCategoryDropdown]);
 
   return (
-    <div className="relative flex flex-col h-full w-full bg-background_secondary text-text_primary overflow-hidden font-cairo">
+    <div className="relative flex flex-col h-full w-full bg-transparent text-text_primary overflow-hidden font-cairo">
       
       {/* ── TOP TOOLBAR (Header Redesigned: Two Rows) ── */}
-      <div className="flex flex-col shrink-0 w-full border-b border-border_default bg-background_primary">
+      <div className="flex flex-col shrink-0 w-full border-b border-black/[0.07] dark:border-white/[0.07] bg-white/30 dark:bg-black/30 backdrop-blur-xl relative z-[50]">
         
         {/* ROW 1: Customer Selector, Date, Invoice Number */}
         <div className="h-[65px] px-6 flex items-center justify-between border-b border-border_default bg-transparent relative z-[60]">
@@ -435,7 +443,13 @@ export default function ProInvoiceLayout({
                  {onCancel && (
                    <ToolbarButton icon={<XCircle size={18} />} label={displayCancelLabel} onClick={onCancel} className="text-orange-400 border-orange-400/40 hover:bg-orange-400/10" disabled={isSaving} shortcut={shortcuts.cancel_invoice} />
                  )}
-                 <ToolbarButton icon={<Trash2 size={18} />} label={t('common.delete')} onClick={onDelete} className="text-danger_red border-danger_red/40 hover:bg-danger_red/10" disabled={isSaving} />
+                  <ToolbarButton 
+                    icon={<Trash2 size={18} />} 
+                    label={t('common.delete')} 
+                    onClick={() => setShowClearConfirm(true)} 
+                    className="text-danger_red border-danger_red/40 hover:bg-danger_red/10" 
+                    disabled={isSaving} 
+                  />
               </div>
            </div>
 
@@ -457,7 +471,7 @@ export default function ProInvoiceLayout({
 
       {/* ── DATA GRID ── */}
       {/* Table Header — ثابت خارج overflow-hidden لضمان ظهور الظل الجميل */}
-      <div className="h-[52px] shrink-0 w-full bg-gradient-to-b from-table_header_from to-table_header_to border-b border-black/30 dark:border-border_default flex items-center text-sm font-bold text-white px-0 shadow-[0_10px_30px_rgba(0,0,0,0.5)] z-30 relative overflow-y-hidden custom-scrollbar pro-invoice-header">
+      <div className="h-[52px] shrink-0 w-full bg-gradient-to-b from-table_header_from to-table_header_to border-b border-black/30 dark:border-border_default flex items-center text-sm font-bold text-white px-0 shadow-[0_10px_30px_rgba(0,0,0,0.5)] z-30 relative overflow-hidden pro-invoice-header">
         {headerCells}
       </div>
       
@@ -466,7 +480,7 @@ export default function ProInvoiceLayout({
         <div className={`absolute inset-0 pointer-events-none ${glowOpacity} bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] ${glowColor} via-background_primary to-background_secondary`}></div>
         
         {/* Table Body — يمتد الآن خلف الفوتر الشفاف */}
-        <div className="flex-1 min-h-0 overflow-y-scroll custom-scrollbar z-10 text-sm">
+        <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-scroll custom-scrollbar z-10 text-sm">
           <div className="min-h-full flex flex-col bg-background_secondary">
             {children}
             {/* الفاصلة تنكمش إلى 0 عندما تملأ الصفوف الوهمية المساحة — لا min-h لضمان الالتحام مع خط الـ Summary */}
@@ -553,7 +567,7 @@ export default function ProInvoiceLayout({
            {/* Total Box */}
              <div className={`flex-1 h-full flex flex-col justify-center pb-2 items-end ${direction === 'rtl' ? 'pl-16' : 'pr-16'}`}>
                <div className="flex flex-row items-baseline w-full overflow-visible justify-end">
-                 <span className={`leading-[1.1] font-black font-sans text-text_primary drop-shadow-[0_0_40px_rgba(16,185,129,0.5)] tracking-tighter transition-all duration-300
+                 <span className={`leading-[1.1] font-black font-sans text-text_primary ${textGlowClass} tracking-tighter transition-all duration-300
                    ${totalAmount.toFixed(2).length > 15 ? 'text-[54px]' :
                      totalAmount.toFixed(2).length > 12 ? 'text-[68px]' : 
                      totalAmount.toFixed(2).length > 10 ? 'text-[82px]' :
@@ -605,6 +619,69 @@ export default function ProInvoiceLayout({
           </div>
         </div>
       </div>
+      <AnimatePresence>
+        {showClearConfirm && (
+          <div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-md z-[200] flex items-center justify-center p-4"
+            onClick={() => setShowClearConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 30 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+              className="bg-background_secondary/60 dark:bg-black/40 backdrop-blur-3xl border border-black/10 dark:border-white/10 rounded-[32px] shadow-[0_30px_70px_rgba(0,0,0,0.35)] dark:shadow-[0_30px_70px_rgba(0,0,0,0.7)] w-full max-w-md p-8 flex flex-col items-center text-center space-y-6 relative overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Top gradient indicator line */}
+              <div className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-transparent via-danger_red/50 to-transparent" />
+
+              {/* Glowing animated warning icon container */}
+              <div className="relative flex items-center justify-center">
+                <div className="absolute inset-0 bg-danger_red/20 rounded-full blur-2xl animate-pulse" />
+                <motion.div 
+                  animate={{ y: [0, -6, 0] }}
+                  transition={{ repeat: Infinity, duration: 2.5, ease: "easeInOut" }}
+                  className="relative w-20 h-20 bg-gradient-to-tr from-danger_red/15 to-danger_red/5 border-2 border-danger_red/30 dark:border-danger_red/20 rounded-full flex items-center justify-center text-danger_red shadow-[0_0_35px_rgba(239,68,68,0.25)]"
+                >
+                  <Trash2 size={36} />
+                </motion.div>
+              </div>
+
+              {/* Text content with crisp typography */}
+              <div className="space-y-2.5">
+                <h4 className="text-xl font-black text-text_primary tracking-tight">تفريغ سلة المنتجات</h4>
+                <p className="text-sm font-bold text-text_secondary leading-relaxed max-w-[320px] mx-auto">
+                  تنبيه: أنت على وشك إزالة جميع المواد المدرجة في هذه الفاتورة وإفراغ السلة تماماً. هل تريد الاستمرار؟
+                </p>
+              </div>
+
+              {/* Action buttons with animated feedback */}
+              <div className="w-full grid grid-cols-2 gap-4 pt-2">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setShowClearConfirm(false)}
+                  className="px-5 py-3.5 rounded-2xl border border-border_default hover:bg-background_card/70 hover:border-text_muted/40 text-sm font-black text-text_primary transition-all cursor-pointer shadow-sm"
+                >
+                  إلغاء
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02, boxShadow: '0 10px 25px rgba(239, 68, 68, 0.35)' }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => {
+                    onDelete();
+                    setShowClearConfirm(false);
+                  }}
+                  className="px-5 py-3.5 rounded-2xl bg-gradient-to-r from-danger_red to-red-600 hover:from-red-600 hover:to-red-700 text-white text-sm font-black shadow-lg shadow-danger_red/20 transition-all cursor-pointer"
+                >
+                  نعم، إفراغ السلة
+                </motion.button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

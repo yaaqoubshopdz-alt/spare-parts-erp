@@ -15,9 +15,10 @@ interface ERPTableRowProps<T> {
   columns: ERPColumn<T>[];
   index: number;
   onClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }
 
-function ERPTableRowInner<T>({ row, columns, index, onClick }: ERPTableRowProps<T>) {
+function ERPTableRowInner<T>({ row, columns, index, onClick, onContextMenu }: ERPTableRowProps<T>) {
   const isFiller = row === null;
   const bgClass = index % 2 === 0 ? 'bg-background_secondary' : 'bg-sidebar_bg';
 
@@ -29,13 +30,14 @@ function ERPTableRowInner<T>({ row, columns, index, onClick }: ERPTableRowProps<
       `}
       // Note: borders between rows are handled by tbody's `divide-y divide-border_default`
       onClick={isFiller ? undefined : onClick}
+      onContextMenu={isFiller ? undefined : onContextMenu}
     >
       {columns.map((col) => {
         if (isFiller) {
           return (
             <td
               key={col.key}
-              className="border-l border-border_default"
+              className="border-l border-border_default dark:border-l-border_custom/3"
               style={col.width ? { width: col.width, minWidth: col.width } : undefined}
             />
           );
@@ -45,7 +47,7 @@ function ERPTableRowInner<T>({ row, columns, index, onClick }: ERPTableRowProps<
         return (
           <td
             key={col.key}
-            className={`px-3 py-2 font-bold text-text_primary border-l border-border_default ${alignClass} ${col.cellClass || ''}`}
+            className={`px-3 py-2 font-bold text-text_primary border-l border-border_default dark:border-l-border_custom/3 ${alignClass} ${col.cellClass || ''}`}
             style={col.width ? { width: col.width, minWidth: col.width, maxWidth: col.width } : undefined}
           >
             {col.render ? col.render(row) : <span className="text-sm">{(row as any)?.[col.key] ?? '-'}</span>}

@@ -1,10 +1,11 @@
 /**
  * ReportsPage — الإحصائيات المالية والتقارير الاحترافية
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BarChart3, TrendingUp, Package, Calendar, Users, Briefcase, DollarSign, Wallet } from 'lucide-react';
 import { showError } from '../../shared/utils/notifications';
 import { FinancialPinGate } from '../../shared/components/ui/FinancialPinGate';
+import { useSmoothScroll } from '../../shared/hooks/useSmoothScroll';
 
 export default function ReportsPage() {
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -12,6 +13,14 @@ export default function ReportsPage() {
   const [profitData, setProfitData] = useState<any>(null);
   const [stockValuation, setStockValuation] = useState<any>(null);
   const [trialBalanceData, setTrialBalanceData] = useState<any>(null);
+
+  // Drag-to-scroll — main page scroll area (vertical)
+  const pageScrollRef = useRef<HTMLDivElement | null>(null);
+  useSmoothScroll<HTMLDivElement>({ direction: 'vertical' }, pageScrollRef);
+
+  // Drag-to-scroll — trial balance table (horizontal)
+  const trialTableRef = useRef<HTMLDivElement | null>(null);
+  useSmoothScroll<HTMLDivElement>({ direction: 'horizontal' }, trialTableRef);
 
   // Filters
   const today = new Date().toISOString().split('T')[0];
@@ -61,7 +70,7 @@ export default function ReportsPage() {
   }
 
   return (
-    <div className="p-6 h-full flex flex-col relative w-full overflow-y-auto custom-scrollbar">
+    <div ref={pageScrollRef} className="p-6 h-full flex flex-col relative w-full overflow-y-auto custom-scrollbar">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-black text-text_primary flex items-center gap-3">
@@ -232,7 +241,7 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              <div className="overflow-x-auto rounded-2xl border border-border_default">
+              <div ref={trialTableRef} className="overflow-x-auto rounded-2xl border border-border_default">
                 <table className="w-full text-right">
                   <thead>
                     <tr className="bg-background_primary border-b border-border_default text-text_secondary text-sm">

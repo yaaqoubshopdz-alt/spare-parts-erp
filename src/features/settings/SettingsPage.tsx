@@ -15,6 +15,7 @@ import {
   ShieldAlert,
   UploadCloud,
   Download,
+  FolderOpen,
   Users,
   Plus,
   Edit2,
@@ -25,8 +26,11 @@ import {
   Lock,
   X,
   Keyboard,
-  RefreshCw
+  RefreshCw,
+  Smartphone,
+  QrCode
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { showSuccess, showError } from '../../shared/utils/notifications';
 import { useAuth } from '../../hooks/useAuth';
 import VehiclesPage from '../vehicles/VehiclesPage';
@@ -197,7 +201,7 @@ export default function SettingsPage() {
   const [countArchiveTotal, setCountArchiveTotal] = useState(0);
 
   const canManageUsers = currentUser && ['owner', 'manager'].includes(currentUser.role);
-  const [activeTab, setActiveTab] = useState<'profile' | 'print' | 'vehicles' | 'inventory_archive' | 'users' | 'backup' | 'shortcuts'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'print' | 'vehicles' | 'inventory_archive' | 'users' | 'backup' | 'shortcuts' | 'mobile'>('profile');
 
   // Keyboard Shortcuts State
   const [recordingAction, setRecordingAction] = useState<keyof ShortcutMapping | null>(null);
@@ -255,6 +259,9 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState('');
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [showLogoCustomizer, setShowLogoCustomizer] = useState(false);
+  const [showDataResetModal, setShowDataResetModal] = useState(false);
+  const [dataResetConfirmText, setDataResetConfirmText] = useState('');
+  const [dataResetting, setDataResetting] = useState(false);
   const [customizerTab, setCustomizerTab] = useState<'primary' | 'secondary'>('primary');
   const [previewPaperSize, setPreviewPaperSize] = useState<PaperSize>('A4');
   const [tempLogoSettings, setTempLogoSettings] = useState({
@@ -311,6 +318,11 @@ export default function SettingsPage() {
     secondary_logo_y: '0',
     items_per_page_a4: '0',
     items_per_page_a5: '0',
+    pos_show_qty_price_modal: false,
+    allow_negative_stock: false,
+    auto_backup_enabled: false,
+    auto_backup_interval: 'daily',
+    auto_backup_directory: '',
   });
 
   useEffect(() => {
@@ -335,6 +347,30 @@ export default function SettingsPage() {
     }
   }, [showLogoCustomizer, settings]);
 
+  const [mobileServerInfo, setMobileServerInfo] = useState<{
+    ip: string;
+    wsPort: number;
+    httpPort: number;
+    isConnected: boolean;
+  } | null>(null);
+  const [mobileLoading, setMobileLoading] = useState(false);
+
+  const loadMobileServerInfo = async () => {
+    setMobileLoading(true);
+    try {
+      const res = await window.electronAPI.invoke('mobile:get-server-info');
+      if (res.success && res.data) {
+        setMobileServerInfo(res.data);
+      } else {
+        showError(res.error || 'فشل جلب بيانات خادم الهاتف');
+      }
+    } catch (e) {
+      showError('فشل جلب بيانات خادم الهاتف');
+    } finally {
+      setMobileLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
   }, []);
@@ -344,6 +380,8 @@ export default function SettingsPage() {
       loadCountSessions(1);
     } else if (activeTab === 'users' && canManageUsers) {
       loadUsersList();
+    } else if (activeTab === 'mobile') {
+      loadMobileServerInfo();
     }
   }, [activeTab]);
 
@@ -377,6 +415,11 @@ export default function SettingsPage() {
           secondary_logo_y: res.data.secondary_logo_y || '0',
           items_per_page_a4: res.data.items_per_page_a4 || '0',
           items_per_page_a5: res.data.items_per_page_a5 || '0',
+          pos_show_qty_price_modal: res.data.pos_show_qty_price_modal === true || res.data.pos_show_qty_price_modal === 'true',
+          allow_negative_stock: res.data.allow_negative_stock === true || res.data.allow_negative_stock === 'true',
+          auto_backup_enabled: res.data.auto_backup_enabled === true || res.data.auto_backup_enabled === 'true',
+          auto_backup_interval: res.data.auto_backup_interval || 'daily',
+          auto_backup_directory: res.data.auto_backup_directory || '',
         }));
       }
       const pRes = await window.electronAPI.invoke('print:getPrinters');
@@ -435,6 +478,11 @@ export default function SettingsPage() {
         secondary_logo_y: String(settings.secondary_logo_y || '0'),
         items_per_page_a4: String(settings.items_per_page_a4 || '0'),
         items_per_page_a5: String(settings.items_per_page_a5 || '0'),
+        pos_show_qty_price_modal: String(settings.pos_show_qty_price_modal),
+        allow_negative_stock: String(settings.allow_negative_stock),
+        auto_backup_enabled: String(settings.auto_backup_enabled),
+        auto_backup_interval: String(settings.auto_backup_interval),
+        auto_backup_directory: String(settings.auto_backup_directory),
       };
       const res = await window.electronAPI.invoke('db:settings:update', payload);
       if (res.success) {
@@ -448,6 +496,49 @@ export default function SettingsPage() {
     } finally {
       saveSettingEnabledFieldsToLocalStorage(); // sync to local storage just in case
       setSaving(false);
+    }
+  };
+
+  const saveSettingsDirect = async (updatedSettings: typeof settings) => {
+    try {
+      const payload = {
+        ...updatedSettings,
+        auto_print: String(updatedSettings.auto_print),
+        company_rc_enabled: String(updatedSettings.company_rc_enabled),
+        company_nif_enabled: String(updatedSettings.company_nif_enabled),
+        company_nis_enabled: String(updatedSettings.company_nis_enabled),
+        company_art_enabled: String(updatedSettings.company_art_enabled),
+        company_cb_enabled: String(updatedSettings.company_cb_enabled),
+        logo_size: String(updatedSettings.logo_size || '80'),
+        logo_shape: String(updatedSettings.logo_shape || 'circle'),
+        logo_opacity: String(updatedSettings.logo_opacity || '100'),
+        logo_grayscale: String(updatedSettings.logo_grayscale || 'false'),
+        logo_position: String(updatedSettings.logo_position || 'right'),
+        logo_x: String(updatedSettings.logo_x || '0'),
+        logo_y: String(updatedSettings.logo_y || '0'),
+        secondary_logo: String(updatedSettings.secondary_logo || ''),
+        secondary_logo_size: String(updatedSettings.secondary_logo_size || '80'),
+        secondary_logo_shape: String(updatedSettings.secondary_logo_shape || 'circle'),
+        secondary_logo_opacity: String(updatedSettings.secondary_logo_opacity || '100'),
+        secondary_logo_grayscale: String(updatedSettings.secondary_logo_grayscale || 'false'),
+        secondary_logo_x: String(updatedSettings.secondary_logo_x || '0'),
+        secondary_logo_y: String(updatedSettings.secondary_logo_y || '0'),
+        items_per_page_a4: String(updatedSettings.items_per_page_a4 || '0'),
+        items_per_page_a5: String(updatedSettings.items_per_page_a5 || '0'),
+        pos_show_qty_price_modal: String(updatedSettings.pos_show_qty_price_modal),
+        allow_negative_stock: String(updatedSettings.allow_negative_stock),
+        auto_backup_enabled: String(updatedSettings.auto_backup_enabled),
+        auto_backup_interval: String(updatedSettings.auto_backup_interval),
+        auto_backup_directory: String(updatedSettings.auto_backup_directory),
+      };
+      const res = await window.electronAPI.invoke('db:settings:update', payload);
+      if (res.success) {
+        showSuccess('تم حفظ التغييرات تلقائياً.');
+      } else {
+        showError(res.error);
+      }
+    } catch (err) {
+      showError('حدث خطأ أثناء حفظ التغييرات تلقائياً');
     }
   };
 
@@ -700,6 +791,29 @@ export default function SettingsPage() {
     }
   };
 
+  const handleDataReset = async () => {
+    if (dataResetConfirmText !== 'RESET') {
+      showError('يجب كتابة RESET بالضبط للتأكيد');
+      return;
+    }
+    setDataResetting(true);
+    try {
+      const res = await window.electronAPI.invoke('db:settings:reset');
+      if (res.success) {
+        setShowDataResetModal(false);
+        setDataResetConfirmText('');
+        showSuccess('تمت إعادة تعيين قاعدة البيانات بنجاح. سيتم إعادة تحميل الواجهة.');
+        setTimeout(() => window.location.reload(), 1800);
+      } else {
+        showError(`فشلت عملية الإعادة: ${res.error}`);
+      }
+    } catch (e) {
+      showError('حدث خطأ غير متوقع أثناء إعادة التعيين');
+    } finally {
+      setDataResetting(false);
+    }
+  };
+
   const handleRestore = async () => {
     if (!confirm('تحذير: استرجاع قاعدة بيانات قديمة سيؤدي إلى استبدال كافة البيانات الحالية بالكامل. هل تريد الاستمرار؟')) return;
     try {
@@ -715,6 +829,21 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSelectBackupDirectory = async () => {
+    try {
+      const res = await window.electronAPI.invoke('dialog:selectDirectory');
+      if (res.success && res.path) {
+        const updated = { ...settings, auto_backup_directory: res.path };
+        setSettings(updated);
+        saveSettingsDirect(updated);
+      } else if (res.error && res.error !== 'Canceled') {
+        showError(res.error);
+      }
+    } catch (e) {
+      showError('فشل اختيار المجلد');
+    }
+  };
+
   if (loading) return <div className="p-6 h-full flex items-center justify-center text-text_secondary font-bold">جاري تحميل الإعدادات...</div>;
 
   // Tabs layout builder
@@ -723,13 +852,14 @@ export default function SettingsPage() {
     { id: 'print', label: 'محرك الطباعة', icon: Printer },
     { id: 'vehicles', label: 'توافق المركبات', icon: Car },
     { id: 'inventory_archive', label: 'سجل وجلسات الجرد', icon: ClipboardList },
-    { id: 'shortcuts', label: 'اختصارات لوحة المفاتيح', icon: Keyboard },
+    { id: 'shortcuts', label: 'الاختصارات والتحكم', icon: Keyboard },
     ...(canManageUsers ? [{ id: 'users', label: 'إدارة الموظفين', icon: Users }] : []),
+    { id: 'mobile', label: 'الجهاز المحمول', icon: Smartphone },
     { id: 'backup', label: 'النسخ الاحتياطي', icon: Database },
   ];
 
   return (
-    <div className="p-4 pt-8 h-full flex flex-col relative w-full overflow-hidden font-cairo text-right" dir="rtl">
+    <div className="px-4 md:px-6 pt-4 md:pt-6 pb-0 h-full flex flex-col relative w-full overflow-hidden font-cairo text-right" dir="rtl">
 
       {/* Fallback hidden file input */}
       <input
@@ -741,12 +871,12 @@ export default function SettingsPage() {
       />
 
       {/* Tabs Header */}
-      <div className="flex flex-wrap items-center gap-3 mb-8 bg-background_secondary/50 p-2.5 rounded-2xl border border-border_default w-fit shadow-sm backdrop-blur-sm shrink-0 select-none">
+      <div className="flex flex-nowrap overflow-x-auto scrollbar-none items-center gap-2 mb-0 bg-background_secondary/50 p-2 rounded-2xl border border-border_default w-full shadow-sm backdrop-blur-sm shrink-0 select-none">
         {tabsList.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2.5 px-6 py-3.5 rounded-xl text-base font-bold transition-all duration-300 relative z-10 cursor-pointer ${activeTab === tab.id ? 'text-white font-black scale-[1.03]' : 'text-text_secondary hover:bg-background_card hover:text-text_primary'}`}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm md:text-base font-bold transition-all duration-300 relative z-10 cursor-pointer shrink-0 ${activeTab === tab.id ? 'text-white font-black scale-[1.02]' : 'text-text_secondary hover:bg-background_card hover:text-text_primary'}`}
           >
             {activeTab === tab.id && (
               <motion.div
@@ -755,7 +885,7 @@ export default function SettingsPage() {
                 transition={{ type: 'spring', stiffness: 380, damping: 30 }}
               />
             )}
-            <tab.icon size={20} />
+            <tab.icon size={18} />
             {tab.label}
           </button>
         ))}
@@ -765,7 +895,7 @@ export default function SettingsPage() {
       <div className="flex-1 flex flex-col min-h-0 w-full relative">
         <AnimatePresence mode="wait">
           {activeTab === 'profile' && (
-            <motion.div key="profile" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex-1 overflow-y-auto pb-32 space-y-6 custom-scrollbar">
+            <motion.div key="profile" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex-1 overflow-y-auto pt-6 pb-32 space-y-6 custom-scrollbar">
               <div className="bg-background_secondary border border-border_default rounded-3xl p-10 shadow-sm max-w-4xl mx-auto w-full space-y-8 flex flex-col items-center">
                 {/* Dual Logo Configuration Cards */}
                 <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-8 pb-6 border-b border-border_default/30">
@@ -1077,7 +1207,7 @@ export default function SettingsPage() {
           )}
 
           {activeTab === 'print' && (
-            <motion.div key="print" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex-1 overflow-y-auto pb-28 space-y-4 custom-scrollbar">
+            <motion.div key="print" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex-1 overflow-y-auto pt-6 pb-28 space-y-4 custom-scrollbar">
               <div className="bg-background_secondary border border-border_default rounded-3xl p-8 shadow-sm space-y-8 max-w-5xl mx-auto w-full">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
                   <InteractiveDropdownSelect
@@ -1105,10 +1235,18 @@ export default function SettingsPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setSettings(p => ({ ...p, auto_print: !p.auto_print }))}
-                    className={`w-18 h-10 rounded-full transition-colors relative flex items-center cursor-pointer ${settings.auto_print ? 'bg-primary_blue' : 'bg-border_default'}`}
+                    onClick={() => {
+                      const next = !settings.auto_print;
+                      setSettings(p => ({ ...p, auto_print: next }));
+                      saveSettingsDirect({ ...settings, auto_print: next });
+                    }}
+                    className={`w-14 h-8 rounded-full transition-all duration-300 relative flex items-center cursor-pointer p-1 shrink-0 ${
+                      settings.auto_print 
+                        ? 'bg-primary_blue shadow-[0_0_12px_rgba(59,130,246,0.5)] border border-primary_blue/30' 
+                        : 'bg-background_card border border-border_default'
+                    }`}
                   >
-                    <div className={`w-8 h-8 bg-white rounded-full transition-all absolute shadow-sm ${settings.auto_print ? 'left-1' : 'left-9'}`} />
+                    <div className={`w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 absolute ${settings.auto_print ? 'left-1' : 'left-7'}`} />
                   </button>
                 </div>
 
@@ -1150,7 +1288,7 @@ export default function SettingsPage() {
           )}
 
           {activeTab === 'vehicles' && (
-            <motion.div key="vehicles" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex-1 flex flex-col min-h-0 max-w-5xl mx-auto w-full">
+            <motion.div key="vehicles" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex-1 overflow-y-auto pt-6 pb-32 custom-scrollbar max-w-5xl mx-auto w-full">
               <div className="bg-background_secondary border border-border_default rounded-2xl overflow-hidden shadow-sm flex-1 min-h-0">
                 <VehiclesPage hideHeader={true} />
               </div>
@@ -1158,7 +1296,7 @@ export default function SettingsPage() {
           )}
 
           {activeTab === 'inventory_archive' && (
-            <motion.div key="inventory_archive" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex-1 flex flex-col min-h-0">
+            <motion.div key="inventory_archive" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex-1 flex flex-col min-h-0 pt-6">
               <div className="bg-background_secondary border border-border_default rounded-2xl p-4 shadow-sm flex-1 min-h-0 flex flex-col">
                 {countSessionsLoading && countSessions.length === 0 ? (
                   <div className="py-12 flex-1 flex items-center justify-center text-text_muted font-bold">جاري تحميل السجلات...</div>
@@ -1265,7 +1403,7 @@ export default function SettingsPage() {
           )}
 
           {activeTab === 'users' && canManageUsers && (
-            <motion.div key="users" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex-1 flex flex-col min-h-0 max-w-5xl mx-auto w-full space-y-6">
+            <motion.div key="users" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex-1 overflow-y-auto pt-6 pb-32 space-y-6 custom-scrollbar max-w-5xl mx-auto w-full">
               {/* Header inside Tab */}
               <div className="flex items-center justify-between shrink-0">
                 <h3 className="text-lg font-black text-text_primary flex items-center gap-2">
@@ -1349,8 +1487,8 @@ export default function SettingsPage() {
           )}
 
           {activeTab === 'backup' && (
-            <motion.div key="backup" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex-1 overflow-y-auto pb-28 space-y-4 custom-scrollbar">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto w-full">
+            <motion.div key="backup" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex-1 overflow-y-auto pt-6 pb-28 space-y-4 custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-8 max-w-6xl mx-auto w-full">
                 {/* Backup Card */}
                 <div className="bg-background_secondary border border-border_default p-10 rounded-3xl flex flex-col justify-between shadow-sm hover:shadow-md transition-all hover:scale-[1.01] min-h-[380px]">
                   <div className="space-y-6">
@@ -1367,6 +1505,76 @@ export default function SettingsPage() {
                   >
                     حفظ نسخة احتياطية
                   </button>
+                </div>
+
+                {/* Scheduled Auto Backup Card */}
+                <div className="bg-background_secondary border border-border_default p-10 rounded-3xl flex flex-col justify-between shadow-sm hover:shadow-md transition-all hover:scale-[1.01] min-h-[380px]">
+                  <div className="space-y-6">
+                    <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
+                      <Save className="text-emerald-500" size={34} />
+                    </div>
+                    <h4 className="text-2xl font-black text-text_primary">النسخ الاحتياطي التلقائي (المجدول)</h4>
+                    <p className="text-sm text-text_secondary leading-relaxed font-bold">قم بجدولة حفظ نسخة احتياطية بشكل تلقائي ودوري لتجنب ضياع البيانات الهامة.</p>
+
+                    <div className="space-y-4 pt-2">
+                      {/* Toggle Enable */}
+                      <label className="flex items-center gap-3 cursor-pointer select-none text-base font-bold text-text_primary">
+                        <input
+                          type="checkbox"
+                          name="auto_backup_enabled"
+                          checked={settings.auto_backup_enabled}
+                          onChange={(e) => {
+                            const next = e.target.checked;
+                            const updated = { ...settings, auto_backup_enabled: next };
+                            setSettings(updated);
+                            saveSettingsDirect(updated);
+                          }}
+                          className="w-5 h-5 text-primary_blue bg-background_primary border-border_default rounded focus:ring-primary_blue focus:ring-2 outline-none cursor-pointer"
+                        />
+                        <span>تفعيل النسخ الاحتياطي التلقائي</span>
+                      </label>
+
+                      {/* Interval Select */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-text_secondary block">تكرار الحفظ تلقائياً:</label>
+                        <select
+                          name="auto_backup_interval"
+                          value={settings.auto_backup_interval}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            const updated = { ...settings, auto_backup_interval: next };
+                            setSettings(updated);
+                            saveSettingsDirect(updated);
+                          }}
+                          className="w-full bg-background_primary border border-border_default hover:border-text_muted/40 focus:border-primary_blue rounded-xl px-4 h-12 outline-none text-text_primary font-bold text-sm cursor-pointer"
+                        >
+                          <option value="daily">كل نهاية يوم (كل 24 ساعة)</option>
+                          <option value="5h">كل 5 ساعات</option>
+                        </select>
+                      </div>
+
+                      {/* Directory Target Selection */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-text_secondary block">مجلد الحفظ التلقائي أو القرص المستهدف:</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            readOnly
+                            value={settings.auto_backup_directory || 'لم يتم اختيار مجلد بعد'}
+                            className="flex-1 bg-background_primary/60 border border-border_default rounded-xl px-4 h-12 text-xs text-text_muted font-mono outline-none truncate"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleSelectBackupDirectory}
+                            className="px-4 bg-background_primary hover:bg-background_card border border-border_default hover:border-primary_blue text-text_primary rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+                          >
+                            <FolderOpen size={14} />
+                            اختر مجلد
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Restore Card */}
@@ -1386,6 +1594,37 @@ export default function SettingsPage() {
                     استرجاع من ملف
                   </button>
                 </div>
+
+                {/* Data Reset Card */}
+                <div className="bg-background_secondary border border-danger_red/25 p-10 rounded-3xl flex flex-col justify-between shadow-sm hover:shadow-md transition-all hover:scale-[1.01] min-h-[380px] relative overflow-hidden">
+                  {/* Danger top stripe */}
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-danger_red via-orange-500 to-danger_red opacity-60 rounded-t-3xl" />
+                  <div className="space-y-6">
+                    <div className="w-16 h-16 rounded-2xl bg-danger_red/10 flex items-center justify-center">
+                      <ShieldAlert className="text-danger_red" size={34} />
+                    </div>
+                    <h4 className="text-2xl font-black text-danger_red">إعادة تعيين البيانات</h4>
+                    <p className="text-base text-text_secondary leading-relaxed font-bold">حذف كامل للبيانات التشغيلية (منتجات، فواتير، مخزون، عملاء، موردين) مع الحفاظ على توافق المركبات ومساعد البحث الذكي.</p>
+                    {/* Protected data badge */}
+                    <div className="bg-success_green/5 border border-success_green/20 rounded-xl p-3 space-y-1.5">
+                      <p className="text-xs font-black text-success_green">✅ البيانات المحفوظة دائماً:</p>
+                      <ul className="text-xs text-text_muted font-bold space-y-0.5 list-disc list-inside">
+                        <li>توافق المركبات (ماركات + موديلات)</li>
+                        <li>قاموس مساعد البحث الذكي</li>
+                        <li>إعدادات المحل والطباعة</li>
+                        <li>حسابات الموظفين</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setShowDataResetModal(true); setDataResetConfirmText(''); }}
+                    className="w-full mt-8 py-5 bg-danger_red hover:bg-red-700 text-white rounded-xl font-bold text-base transition-all shadow-md shadow-danger_red/20 hover:shadow-lg cursor-pointer flex items-center justify-center gap-2.5"
+                  >
+                    <Trash2 size={20} />
+                    إعادة تعيين البيانات
+                  </button>
+                </div>
               </div>
             </motion.div>
           )}
@@ -1396,7 +1635,7 @@ export default function SettingsPage() {
               initial={{ opacity: 0, y: 10 }} 
               animate={{ opacity: 1, y: 0 }} 
               exit={{ opacity: 0 }} 
-              className="flex-1 overflow-y-auto pb-28 space-y-6 custom-scrollbar"
+              className="flex-1 overflow-y-auto pt-6 pb-28 space-y-6 custom-scrollbar"
             >
               <div className="bg-background_secondary border border-border_default rounded-3xl p-8 shadow-sm max-w-4xl mx-auto w-full space-y-6">
                 {/* Header and Reset Button */}
@@ -1433,10 +1672,66 @@ export default function SettingsPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setEnableSidebarHover(!enableSidebarHover)}
-                    className={`w-18 h-10 rounded-full transition-colors relative flex items-center cursor-pointer shrink-0 ${enableSidebarHover ? 'bg-primary_blue' : 'bg-border_default'}`}
+                    onClick={() => {
+                      const next = !enableSidebarHover;
+                      setEnableSidebarHover(next);
+                      showSuccess('تم حفظ التغييرات تلقائياً.');
+                    }}
+                    className={`w-14 h-8 rounded-full transition-all duration-300 relative flex items-center cursor-pointer p-1 shrink-0 ${
+                      enableSidebarHover 
+                        ? 'bg-primary_blue shadow-[0_0_12px_rgba(59,130,246,0.5)] border border-primary_blue/30' 
+                        : 'bg-background_card border border-border_default'
+                    }`}
                   >
-                    <div className={`w-8 h-8 bg-white rounded-full transition-all absolute shadow-sm ${enableSidebarHover ? 'left-1' : 'left-9'}`} />
+                    <div className={`w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 absolute ${enableSidebarHover ? 'left-1' : 'left-7'}`} />
+                  </button>
+                </div>
+
+                {/* Interactive Qty & Price Modal Toggle Setting */}
+                <div className="py-5 flex items-center justify-between gap-6 border-b border-border_default/30">
+                  <div className="space-y-1 text-right">
+                    <h4 className="text-base font-black text-text_primary">نافذة تحديد الكمية والسعر التفاعلية</h4>
+                    <p className="text-xs text-text_muted font-bold">إظهار نافذة منبثقة لتأكيد وتحديد الكمية وسعر البيع فور إضافة المنتج في نقطة البيع</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !settings.pos_show_qty_price_modal;
+                      const updated = { ...settings, pos_show_qty_price_modal: next };
+                      setSettings(updated);
+                      saveSettingsDirect(updated);
+                    }}
+                    className={`w-14 h-8 rounded-full transition-all duration-300 relative flex items-center cursor-pointer p-1 shrink-0 ${
+                      settings.pos_show_qty_price_modal 
+                        ? 'bg-primary_blue shadow-[0_0_12px_rgba(59,130,246,0.5)] border border-primary_blue/30' 
+                        : 'bg-background_card border border-border_default'
+                    }`}
+                  >
+                    <div className={`w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 absolute ${settings.pos_show_qty_price_modal ? 'left-1' : 'left-7'}`} />
+                  </button>
+                </div>
+
+                {/* Allow Negative Stock Toggle Setting */}
+                <div className="py-5 flex items-center justify-between gap-6 border-b border-border_default/30">
+                  <div className="space-y-1 text-right">
+                    <h4 className="text-base font-black text-text_primary">البيع بالسالب (البيع بالنقص)</h4>
+                    <p className="text-xs text-text_muted font-bold">السماح ببيع المنتجات حتى وإن كانت كميتها صفر أو غير كافية بالمخزن (يتم تسويتها تلقائياً عند إدخال فواتير شراء لاحقاً)</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !settings.allow_negative_stock;
+                      const updated = { ...settings, allow_negative_stock: next };
+                      setSettings(updated);
+                      saveSettingsDirect(updated);
+                    }}
+                    className={`w-14 h-8 rounded-full transition-all duration-300 relative flex items-center cursor-pointer p-1 shrink-0 ${
+                      settings.allow_negative_stock 
+                        ? 'bg-primary_blue shadow-[0_0_12px_rgba(59,130,246,0.5)] border border-primary_blue/30' 
+                        : 'bg-background_card border border-border_default'
+                    }`}
+                  >
+                    <div className={`w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 absolute ${settings.allow_negative_stock ? 'left-1' : 'left-7'}`} />
                   </button>
                 </div>
 
@@ -1504,11 +1799,136 @@ export default function SettingsPage() {
             </motion.div>
           )}
 
+          {activeTab === 'mobile' && (
+            <motion.div
+              key="mobile"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="flex-1 overflow-y-auto pt-6 pb-28 space-y-6 custom-scrollbar"
+            >
+              <div className="bg-background_secondary border border-border_default rounded-3xl p-8 shadow-sm max-w-4xl mx-auto w-full space-y-8">
+                {/* Header */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-border_default/30">
+                  <div className="space-y-1.5 text-right">
+                    <h3 className="text-xl font-black text-text_primary flex items-center gap-2.5">
+                      <Smartphone className="text-primary_blue" size={24} />
+                      ربط الهاتف المحمول (YKMS ERP)
+                    </h3>
+                    <p className="text-sm text-text_secondary font-bold">
+                      قم بمسح رمز الاستجابة السريعة (QR Code) لتوصيل تطبيق الهاتف بالنظام لمسح الباركود، رفع الصور، وتصوير الفواتير.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadMobileServerInfo}
+                    disabled={mobileLoading}
+                    className="flex items-center gap-2 px-5 py-3 rounded-xl border border-border_default hover:border-text_muted/30 text-text_secondary hover:text-text_primary font-bold text-sm bg-background_primary/30 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw size={16} className={mobileLoading ? 'animate-spin' : ''} />
+                    {mobileLoading ? 'جاري التحديث...' : 'تحديث الحالة'}
+                  </button>
+                </div>
+
+                {mobileLoading && !mobileServerInfo ? (
+                  <div className="py-12 flex flex-col items-center justify-center text-text_muted font-bold text-sm">
+                    <RefreshCw size={24} className="animate-spin text-primary_blue mb-2" />
+                    جاري تحميل معلومات الخادم...
+                  </div>
+                ) : mobileServerInfo ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                    {/* Left Column: QR Code & Status */}
+                    <div className="bg-background_primary/20 border border-border_default/40 rounded-3xl p-8 flex flex-col items-center justify-center space-y-6 shadow-sm min-h-[360px]">
+                      <div className="text-center space-y-2">
+                        <span className="text-sm font-black text-text_secondary">مسح الرمز للاتصال السريع</span>
+                        <div className="flex items-center justify-center gap-2">
+                          <span className={`inline-block w-2.5 h-2.5 rounded-full ${mobileServerInfo.isConnected ? 'bg-success_green animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.7)]' : 'bg-danger_red animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.7)]'}`}></span>
+                          <span className="text-xs font-black text-text_primary">
+                            {mobileServerInfo.isConnected ? 'الخادم نشط وجاهز للربط' : 'الخادم غير نشط'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* QR Code Container */}
+                      <div className="p-4 bg-white rounded-2xl shadow-md border border-border_default flex items-center justify-center">
+                        <QRCodeSVG
+                          value={`ws://${mobileServerInfo.ip}:${mobileServerInfo.wsPort}`}
+                          size={180}
+                          bgColor="#ffffff"
+                          fgColor="#0c1120"
+                          level="M"
+                        />
+                      </div>
+
+                      <div className="text-center font-mono font-bold text-sm text-primary_blue bg-primary_blue/5 border border-primary_blue/10 rounded-xl px-4 py-2 shrink-0 select-all" dir="ltr">
+                        ws://{mobileServerInfo.ip}:{mobileServerInfo.wsPort}
+                      </div>
+                    </div>
+
+                    {/* Right Column: Server details & Instructions */}
+                    <div className="space-y-6">
+                      <div className="bg-background_primary/15 border border-border_default/30 rounded-2xl p-6 space-y-4">
+                        <h4 className="text-base font-black text-text_primary pb-3 border-b border-border_default/20">تفاصيل الخادم المحلي</h4>
+                        
+                        <div className="flex justify-between items-center text-sm font-bold">
+                          <span className="text-text_muted">عنوان الـ IP المحلي:</span>
+                          <span className="font-mono text-text_primary bg-background_primary/35 px-2.5 py-1 rounded-lg border border-border_default/20">{mobileServerInfo.ip}</span>
+                        </div>
+
+                        <div className="flex justify-between items-center text-sm font-bold">
+                          <span className="text-text_muted">منفذ الباركود (WS):</span>
+                          <span className="font-mono text-text_primary bg-background_primary/35 px-2.5 py-1 rounded-lg border border-border_default/20">{mobileServerInfo.wsPort}</span>
+                        </div>
+
+                        <div className="flex justify-between items-center text-sm font-bold">
+                          <span className="text-text_muted">منفذ الصور والفواتير (HTTP):</span>
+                          <span className="font-mono text-text_primary bg-background_primary/35 px-2.5 py-1 rounded-lg border border-border_default/20">{mobileServerInfo.httpPort}</span>
+                        </div>
+                      </div>
+
+                      {/* Loopback warning if IP is 127.0.0.1 */}
+                      {mobileServerInfo.ip === '127.0.0.1' && (
+                        <div className="bg-warning_amber/10 border border-warning_amber/25 rounded-2xl p-5 flex items-start gap-3.5">
+                          <ShieldAlert size={20} className="text-warning_amber shrink-0 mt-0.5" />
+                          <div className="space-y-1.5 text-right">
+                            <h5 className="text-sm font-black text-warning_amber">تنبيه: عنوان IP محلي فقط (127.0.0.1)</h5>
+                            <p className="text-xs text-text_secondary font-bold leading-relaxed">
+                              النظام لم يتمكن من العثور على عنوان IP لشبكة Wi-Fi نشطة. يرجى توصيل هذا الكمبيوتر بجهاز التوجيه (Wi-Fi Router) أو تفعيل نقطة اتصال الهاتف (Mobile Hotspot) وتوصيل الكمبيوتر بها، ثم انقر على "تحديث الحالة" ليظهر الـ IP الصحيح الذي يمكن للهاتف الاتصال به.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Connection Instructions */}
+                      <div className="bg-primary_blue/5 border border-primary_blue/10 rounded-2xl p-5 flex items-start gap-3.5">
+                        <QrCode size={20} className="text-primary_blue shrink-0 mt-0.5" />
+                        <div className="space-y-2 text-right">
+                          <h5 className="text-sm font-black text-primary_blue">طريقة ربط وتفعيل التطبيق:</h5>
+                          <ul className="text-xs text-text_secondary list-decimal list-inside space-y-2 font-bold leading-relaxed">
+                            <li>تأكد من اتصال الهاتف وجهاز الكمبيوتر بنفس شبكة الـ Wi-Fi.</li>
+                            <li>افتح تطبيق <strong>YKMS ERP</strong> على هاتفك المحمول.</li>
+                            <li>اختر <strong>"مسح رمز QR من شاشة الـ ERP"</strong> من واجهة الاتصال في الهاتف.</li>
+                            <li>قم بمسح رمز الاستجابة السريعة المعروض على اليسار.</li>
+                            <li>سيقوم الهاتف بالربط المباشر ويصبح جاهزاً للعمل كمساعد مبيعات ومخازن.</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-12 flex flex-col items-center justify-center text-danger_red font-bold text-sm">
+                    فشل جلب معلومات الخادم. يرجى التحقق من تشغيل التطبيق في بيئة Electron.
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
         </AnimatePresence>
       </div>
 
-      {/* Floating Save Button for profile and print settings */}
-      {(activeTab === 'profile' || activeTab === 'print') && (
+      {/* Floating Save Button for profile, print, and backup settings */}
+      {(activeTab === 'profile' || activeTab === 'print' || activeTab === 'backup') && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40">
           <button
             onClick={() => handleSave()}
@@ -1816,6 +2236,99 @@ export default function SettingsPage() {
                 </div>
               </form>
             )}
+          </motion.div>
+        </div>
+      )}
+
+      {/* ── Data Reset Confirmation Modal ─────────────────────────────────── */}
+      {showDataResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-background_secondary border border-danger_red/30 w-full max-w-lg rounded-3xl p-8 shadow-2xl space-y-6 relative overflow-hidden"
+          >
+            {/* Top danger stripe */}
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-danger_red via-orange-500 to-danger_red rounded-t-3xl" />
+
+            {/* Header */}
+            <div className="flex items-start gap-4 pt-2">
+              <div className="w-14 h-14 rounded-2xl bg-danger_red/10 border border-danger_red/20 flex items-center justify-center shrink-0">
+                <ShieldAlert className="text-danger_red" size={28} />
+              </div>
+              <div className="space-y-1 text-right">
+                <h3 className="text-xl font-black text-danger_red">تحذير: إعادة تعيين البيانات</h3>
+                <p className="text-sm text-text_secondary font-bold">هذه العملية لا يمكن التراجع عنها. ستُحذف جميع البيانات التشغيلية نهائياً.</p>
+              </div>
+            </div>
+
+            {/* What will be deleted */}
+            <div className="bg-danger_red/5 border border-danger_red/15 rounded-2xl p-4 space-y-2">
+              <p className="text-xs font-black text-danger_red">🗑️ ما سيُحذف نهائياً:</p>
+              <div className="grid grid-cols-2 gap-1">
+                {['جميع المنتجات', 'فواتير البيع', 'فواتير الشراء', 'المخزون والحركات', 'العملاء والموردين', 'المدفوعات', 'القيود المحاسبية', 'جلسات الجرد'].map(item => (
+                  <span key={item} className="text-xs text-text_muted font-bold flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-danger_red/60 shrink-0" />
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* What will be preserved */}
+            <div className="bg-success_green/5 border border-success_green/20 rounded-2xl p-4 space-y-2">
+              <p className="text-xs font-black text-success_green">✅ ما سيبقى محفوظاً:</p>
+              <div className="grid grid-cols-2 gap-1">
+                {['توافق المركبات', 'قاموس البحث الذكي', 'إعدادات المحل', 'حسابات الموظفين', 'الفئات والماركات', 'الوحدات والمواقع'].map(item => (
+                  <span key={item} className="text-xs text-success_green font-bold flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-success_green/60 shrink-0" />
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Confirmation input */}
+            <div className="space-y-2">
+              <label className="block text-sm font-black text-text_primary text-right">
+                اكتب <span className="font-mono text-danger_red bg-danger_red/10 px-2 py-0.5 rounded-lg">RESET</span> للتأكيد:
+              </label>
+              <input
+                id="data-reset-confirm-input"
+                type="text"
+                value={dataResetConfirmText}
+                onChange={(e) => setDataResetConfirmText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && dataResetConfirmText === 'RESET') handleDataReset(); }}
+                placeholder="اكتب RESET هنا..."
+                className="w-full bg-background_primary border border-border_default focus:border-danger_red rounded-xl px-4 py-3 text-text_primary outline-none font-mono font-bold text-center text-base tracking-widest transition-colors"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => { setShowDataResetModal(false); setDataResetConfirmText(''); }}
+                disabled={dataResetting}
+                className="flex-1 py-3.5 bg-background_primary border border-border_default text-text_secondary hover:text-text_primary rounded-xl font-bold text-sm transition-all cursor-pointer disabled:opacity-50"
+              >
+                إلغاء والعودة
+              </button>
+              <button
+                type="button"
+                onClick={handleDataReset}
+                disabled={dataResetConfirmText !== 'RESET' || dataResetting}
+                className="flex-1 py-3.5 bg-danger_red hover:bg-red-700 text-white rounded-xl font-black text-sm transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-md shadow-danger_red/30"
+              >
+                {dataResetting ? (
+                  <><RefreshCw size={16} className="animate-spin" /> جاري الإعادة...</>
+                ) : (
+                  <><Trash2 size={16} /> تأكيد الإعادة النهائية</>
+                )}
+              </button>
+            </div>
           </motion.div>
         </div>
       )}

@@ -138,7 +138,7 @@ export default function VehiclesPage({ hideHeader = false }: { hideHeader?: bool
   };
 
   return (
-    <div className="p-6 h-full flex flex-col relative max-w-6xl mx-auto w-full">
+    <div className="p-6 h-full lg:h-auto flex flex-col relative max-w-6xl mx-auto w-full">
       {!hideHeader && (
         <div className="flex items-center mb-8">
           <h1 className="text-2xl font-bold text-text_primary flex items-center gap-2">
@@ -148,7 +148,7 @@ export default function VehiclesPage({ hideHeader = false }: { hideHeader?: bool
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-[500px] lg:min-h-0">
         
         {/* الماركات Brands */}
         <div className="bg-background_secondary border border-border_default rounded-2xl p-5 flex flex-col">

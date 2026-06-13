@@ -64,7 +64,19 @@ export const AccountingEngine = {
 
   updateSaleEntry(raw: any, data: { oldTotal: number, newTotal: number, invoiceId: number, date?: string }, userId: number) {
     this._initAccounts(raw);
-    const diff = data.newTotal - data.oldTotal;
+    
+    // Delete any existing adjustment entry for this invoice (cascades to lines)
+    raw.prepare("DELETE FROM journal_entries WHERE reference_type = 'sales_invoice_adjustment' AND reference_id = ?").run(data.invoiceId);
+
+    // Fetch original total from the original sales_invoice journal entry
+    const originalEntry = raw.prepare("SELECT id FROM journal_entries WHERE reference_type = 'sales_invoice' AND reference_id = ?").get(data.invoiceId);
+    let originalTotal = data.oldTotal; // fallback
+    if (originalEntry) {
+      const line = raw.prepare("SELECT credit FROM journal_entry_lines WHERE entry_id = ? AND account_id = ?").get(originalEntry.id, this.ACCOUNTS.REVENUE);
+      if (line) originalTotal = line.credit;
+    }
+
+    const diff = data.newTotal - originalTotal;
     if (Math.abs(diff) < 0.01) return;
     const lines = [
       { account_id: this.ACCOUNTS.REVENUE, debit: diff < 0 ? Math.abs(diff) : 0, credit: diff > 0 ? diff : 0 },
@@ -75,7 +87,19 @@ export const AccountingEngine = {
 
   updatePurchaseEntry(raw: any, data: { oldTotal: number, newTotal: number, invoiceId: number, supplier_id: number, date?: string }, userId: number) {
     this._initAccounts(raw);
-    const diff = data.newTotal - data.oldTotal;
+    
+    // Delete any existing adjustment entry for this invoice (cascades to lines)
+    raw.prepare("DELETE FROM journal_entries WHERE reference_type = 'purchase_invoice_adjustment' AND reference_id = ?").run(data.invoiceId);
+
+    // Fetch the original total from the original purchase_invoice journal entry
+    const originalEntry = raw.prepare("SELECT id FROM journal_entries WHERE reference_type = 'purchase_invoice' AND reference_id = ?").get(data.invoiceId);
+    let originalTotal = data.oldTotal; // fallback
+    if (originalEntry) {
+      const line = raw.prepare("SELECT debit FROM journal_entry_lines WHERE entry_id = ? AND account_id = ?").get(originalEntry.id, this.ACCOUNTS.INVENTORY);
+      if (line) originalTotal = line.debit;
+    }
+
+    const diff = data.newTotal - originalTotal;
     if (Math.abs(diff) < 0.01) return;
     const lines = [
       { account_id: this.ACCOUNTS.INVENTORY, debit: diff > 0 ? diff : 0, credit: diff < 0 ? Math.abs(diff) : 0 },

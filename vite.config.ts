@@ -4,34 +4,38 @@ import path from 'path';
 import electron from 'vite-plugin-electron';
 import renderer from 'vite-plugin-electron-renderer';
 
+const isWebOnly = process.env.WEB_ONLY === 'true';
+
 export default defineConfig({
   plugins: [
     react(),
-    electron([
-      {
-        entry: 'electron/main.ts',
-        vite: {
-          build: {
-            outDir: 'dist/electron',
-            rollupOptions: {
-              external: ['better-sqlite3'],
+    ...(!isWebOnly ? [
+      electron([
+        {
+          entry: 'electron/main.ts',
+          vite: {
+            build: {
+              outDir: 'dist/electron',
+              rollupOptions: {
+                external: ['better-sqlite3', 'electron-updater', 'bufferutil', 'utf-8-validate'],
+              },
             },
           },
         },
-      },
-      {
-        entry: 'electron/preload.ts',
-        onstart(options) {
-          options.reload();
-        },
-        vite: {
-          build: {
-            outDir: 'dist/electron',
+        {
+          entry: 'electron/preload.ts',
+          onstart(options) {
+            options.reload();
+          },
+          vite: {
+            build: {
+              outDir: 'dist/electron',
+            },
           },
         },
-      },
-    ]),
-    renderer(),
+      ]),
+      renderer(),
+    ] : []),
   ],
   resolve: {
     alias: {

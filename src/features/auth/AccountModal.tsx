@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Lock, Eye, EyeOff, Check, User, Users, Plus, Key, AtSign, Power } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
@@ -404,7 +405,7 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
     setWorkerPermissions(DEFAULT_ROLE_PERMISSIONS[role] || []);
   };
 
-  return (
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <>
@@ -948,6 +949,7 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

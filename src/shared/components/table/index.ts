@@ -4,4 +4,8 @@ export { default as ERPTableRow } from './ERPTableRow';
 export { default as ERPTableToolbar } from './ERPTableToolbar';
 export { useTableFiller, ROW_HEIGHT } from './useTableFiller';
 export type { ERPColumn, ERPTableProps } from './types';
+export { useColumnManager } from './useColumnManager';
+export { default as ColumnVisibilityPanel } from './ColumnVisibilityPanel';
+export { default as ColumnResizeHandle } from './ColumnResizeHandle';
+export { default as ColumnContextMenu } from './ColumnContextMenu';
 export { default } from './ERPTable';

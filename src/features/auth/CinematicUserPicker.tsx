@@ -102,7 +102,6 @@ export default function CinematicUserPicker({ onTogglePasswordLogin }: Cinematic
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser, pin, isShaking]);
 
   // Auto-submit when 4 digits entered
@@ -110,7 +109,6 @@ export default function CinematicUserPicker({ onTogglePasswordLogin }: Cinematic
     if (pin.length === 4 && selectedUser && !isShaking) {
       handleSubmitPin();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin]);
 
   const handleSubmitPin = async () => {
@@ -143,7 +141,7 @@ export default function CinematicUserPicker({ onTogglePasswordLogin }: Cinematic
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen text-right font-cairo select-none overflow-y-auto relative p-4 w-full">
+    <div className="flex flex-col items-center justify-center text-right font-cairo select-none relative w-full h-full">
       {/* Background blobs for premium depth */}
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary_blue/5 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-600/5 rounded-full blur-[120px] pointer-events-none" />
@@ -153,7 +151,7 @@ export default function CinematicUserPicker({ onTogglePasswordLogin }: Cinematic
         initial={{ opacity: 0, scale: 0.96, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-        className={`relative w-full max-w-lg bg-background_secondary/95 dark:bg-[#14171d]/60 backdrop-blur-2xl border border-border_default dark:border-white/5 rounded-3xl shadow-2xl flex flex-col items-center z-10 border-white/10 ${selectedUser ? 'p-4 sm:p-5' : 'p-5 sm:p-6'}`}
+        className={`relative w-full max-w-lg flex flex-col items-center z-10 ${selectedUser ? 'p-1' : 'p-2'}`}
       >
         {!selectedUser && (
           <>

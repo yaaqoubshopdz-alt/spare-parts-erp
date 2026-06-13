@@ -116,10 +116,10 @@ export default function AdvancedProductFinder({ isOpen, onClose, onSelectProduct
   };
 
   const handleInternetSearch = (productName: string, barcode?: string) => {
-    const query = barcode
-      ? `${barcode} ${productName} compatibility vehicles fitment`
-      : `${productName} compatibility vehicles fitment application`;
-    const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+    const promptText = barcode
+      ? `ماهي السيارات المتوافقة مع قطعة الغيار: ${barcode} ${productName} وما هي أرقام OEM والبدائل المتطابقة معها في السوق الجزائري؟`
+      : `ماهي السيارات المتوافقة مع قطعة الغيار: ${productName} وما هي أرقام OEM والبدائل المتطابقة معها في السوق الجزائري؟`;
+    const url = `https://www.google.com/search?q=${encodeURIComponent(promptText)}`;
     window.electronAPI?.invoke('shell:openExternal', url);
   };
 

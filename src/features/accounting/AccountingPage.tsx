@@ -39,7 +39,7 @@ export default function AccountingPage() {
   }
 
   return (
-    <div className="p-4 md:p-6 h-full flex flex-col overflow-hidden bg-background_primary font-arabic selection:bg-violet-500/20" dir="rtl">
+    <div className="px-4 md:px-6 pt-4 md:pt-6 pb-0 h-full flex flex-col overflow-hidden bg-background_primary font-arabic selection:bg-violet-500/20" dir="rtl">
       
       <motion.div 
         initial={{ opacity: 0, y: 10 }}
@@ -47,7 +47,7 @@ export default function AccountingPage() {
         className="flex flex-col h-full"
       >
         {/* Workspace Tabs Navigation (Lifted to very top) */}
-        <div className="flex gap-2 mb-6 overflow-x-auto custom-scrollbar shrink-0 pb-2 border-b border-border_default/40">
+        <div className="flex gap-2 mb-0 overflow-x-auto custom-scrollbar shrink-0 pb-2 border-b border-border_default/40">
           {TABS.map(tab => {
             const isActive = activeTab === tab.id;
             return (
@@ -86,7 +86,7 @@ export default function AccountingPage() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -15, scale: 0.99 }}
               transition={{ duration: 0.25, ease: 'easeOut' }}
-              className="h-full overflow-y-auto custom-scrollbar absolute inset-0"
+              className="h-full overflow-y-auto custom-scrollbar absolute inset-0 pt-6 pb-8 px-1"
             >
               {activeTab === 'overview' && <SimpleReports />}
               {activeTab === 'cash_flow' && <CashFlowStatement />}
