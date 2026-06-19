@@ -1,6 +1,6 @@
 {
   "name": "spare-parts-erp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Spare Parts ERP - نظام إدارة قطع الغيار",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -91,6 +91,7 @@
     "vitest": "^1.6.1"
   },
   "build": {
+    "npmRebuild": false,
     "appId": "com.spareparts.erp",
     "productName": "SparePartsERP",
     "publish": [
