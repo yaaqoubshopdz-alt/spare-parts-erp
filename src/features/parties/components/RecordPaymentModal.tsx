@@ -20,6 +20,7 @@ export default function RecordPaymentModal({
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('cash');
   const [notes, setNotes] = useState('');
+  const [isRecovery, setIsRecovery] = useState(false);
   const [saving, setSaving] = useState(false);
 
   if (!isOpen) return null;
@@ -40,12 +41,14 @@ export default function RecordPaymentModal({
         [paramKey]: partyId,
         amount: Number(amount),
         payment_method: method,
-        notes: notes || `دفعة من ${partyName}`,
+        notes: notes || (isRecovery ? `استرداد دين مشطوب من ${partyName}` : `دفعة من ${partyName}`),
+        ...(partyType === 'customer' ? { isRecovery } : {}),
       });
       if (res.success) {
         showSuccess('تم تسجيل الدفعة بنجاح');
         setAmount('');
         setNotes('');
+        setIsRecovery(false);
         onSuccess?.();
         onClose();
       } else {
@@ -122,6 +125,22 @@ export default function RecordPaymentModal({
               placeholder="سبب الدفع..."
             />
           </div>
+
+          {/* Recovery Checkbox (only for customer) */}
+          {partyType === 'customer' && (
+            <div className="flex items-center gap-2 pt-2">
+              <input
+                type="checkbox"
+                id="isRecovery"
+                checked={isRecovery}
+                onChange={e => setIsRecovery(e.target.checked)}
+                className="w-4 h-4 text-success_green bg-background_secondary border-border_default rounded focus:ring-success_green/20"
+              />
+              <label htmlFor="isRecovery" className="text-xs text-text_secondary font-bold cursor-pointer select-none">
+                تحصيل كإيراد ديون مشطوبة سابقة (خسائر مستردة)
+              </label>
+            </div>
+          )}
         </div>
 
         {/* Footer */}

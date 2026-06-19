@@ -207,7 +207,11 @@ export default function CustomerStatement({ isOpen, onClose, customerId }: Custo
                   <tr key={idx} className="hover:bg-background_card transition-colors group h-11">
                     <td className="px-4 py-2 font-numbers text-text_secondary border-l border-border_default">{new Date(t.date).toLocaleDateString('en-GB')}</td>
                     <td className="px-4 py-2 font-numbers text-primary_blue font-bold border-l border-border_default">
-                      {isPaymentRow(t) ? (
+                      {t.reference_type === 'debt_write_off' ? (
+                        <span className="text-danger_red font-medium text-sm">شطب دين (خسارة)</span>
+                      ) : t.reference_type === 'debt_recovery_reversal' ? (
+                        <span className="text-violet-500 font-medium text-sm">إعادة إثبات دين مشطوب</span>
+                      ) : isPaymentRow(t) ? (
                         editingPaymentId === t.reference_id ? (
                           <div className="flex items-center gap-2">
                             <input
@@ -221,7 +225,9 @@ export default function CustomerStatement({ isOpen, onClose, customerId }: Custo
                             <button onClick={handleCancelEdit} className="p-1 text-danger_red hover:bg-danger_red/10 rounded" title="إلغاء"><X size={14} /></button>
                           </div>
                         ) : (
-                          <span className="text-success_green font-medium text-sm">دفعة نقدية</span>
+                          <span className="text-success_green font-medium text-sm">
+                            {t.description && t.description.includes('استرداد') ? 'تحصيل دين مشطوب' : 'دفعة نقدية'}
+                          </span>
                         )
                       ) : (
                         <button
@@ -249,7 +255,7 @@ export default function CustomerStatement({ isOpen, onClose, customerId }: Custo
                           <button onClick={() => handleEditPayment(t)} className="p-1.5 text-text_muted hover:text-warning_amber rounded-lg hover:bg-warning_amber/10" title="تعديل الدفعة"><Edit size={14} /></button>
                           <button onClick={() => handleDeletePayment(t.reference_id)} className="p-1.5 text-text_muted hover:text-danger_red rounded-lg hover:bg-danger_red/10" title="حذف الدفعة"><Trash2 size={14} /></button>
                         </div>
-                      ) : !isPaymentRow(t) ? (
+                      ) : t.reference_type === 'sales_invoice' ? (
                         <button onClick={() => navigateToInvoice(t)} className="p-1.5 text-text_muted hover:text-primary_blue rounded-lg hover:bg-primary_blue/10" title="عرض الفاتورة"><ExternalLink size={14} /></button>
                       ) : null}
                     </td>

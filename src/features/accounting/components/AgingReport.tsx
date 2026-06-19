@@ -293,12 +293,85 @@ export default function AgingReport() {
                     <td className="p-4 text-center font-numbers text-text_primary">
                       {fmt(data.reduce((s, r) => s + r.current_30, 0))}
                     </td>
-              </tfoot>
-            )}
-          </table>
+                    <td className="p-4 text-center font-numbers text-warning_amber">
+                      {fmt(data.reduce((s, r) => s + r.days_31_60, 0))}
+                    </td>
+                    <td className="p-4 text-center font-numbers text-orange-500">
+                      {fmt(data.reduce((s, r) => s + r.days_61_90, 0))}
+                    </td>
+                    <td className="p-4 text-center font-numbers text-danger_red">
+                      {fmt(data.reduce((s, r) => s + r.over_90, 0))}
+                    </td>
+                    <td className="p-4 text-center font-numbers text-violet-500">
+                      {fmt(data.reduce((s, r) => s + r.total, 0))}
+                    </td>
+                    {agingType === 'customer' && <td className="p-4"></td>}
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Confirmation Modal for Write-Off */}
+      {writeOffConfirmOpen && selectedParty && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" dir="rtl">
+          <div className="bg-background_secondary border border-border_default rounded-2xl w-full max-w-md p-6 shadow-2xl flex flex-col gap-4 text-right">
+            <div className="flex justify-between items-center pb-2 border-b border-border_default">
+              <h3 className="text-lg font-black text-text_primary flex items-center gap-2">
+                <span className="text-danger_red">⚠️</span> شطب دين كخسائر معدومة
+              </h3>
+              <button 
+                onClick={() => setWriteOffConfirmOpen(false)}
+                className="p-1 text-text_muted hover:text-text_primary rounded-lg hover:bg-background_primary transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3 py-2 text-sm">
+              <p className="text-text_secondary font-medium">
+                هل أنت متأكد من شطب مبلغ <span className="font-bold text-danger_red font-numbers">{fmt(selectedParty.over_90)} د.ج</span> للزبون <span className="font-bold text-text_primary">{selectedParty.party_name}</span> وتحويله إلى ديون معدومة (خسائر)؟
+              </p>
+              <div className="bg-danger_red/5 border border-danger_red/15 rounded-xl p-3.5 text-xs text-danger_red/90 leading-relaxed font-bold">
+                تنبيه: سيؤدي هذا الإجراء إلى تخفيض رصيد الزبون بمبلغ الشطب فوراً وإثبات قيمة المبلغ كخسارة في النظام المالي العام.
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs text-text_secondary font-bold">ملاحظات / سبب الشطب (اختياري):</label>
+                <textarea
+                  value={writeOffNotes}
+                  onChange={(e) => setWriteOffNotes(e.target.value)}
+                  className="w-full h-20 px-3 py-2 bg-background_primary border border-border_default rounded-xl text-xs text-text_primary font-bold focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all resize-none"
+                  placeholder="مثال: تعذر التواصل مع الزبون أو توقف نشاطه..."
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2 border-t border-border_default justify-end">
+              <button
+                disabled={writeOffLoading}
+                onClick={handleConfirmWriteOff}
+                className="flex items-center gap-2 px-5 py-2.5 bg-danger_red text-white hover:bg-danger_red/90 rounded-xl text-xs font-bold transition-all shadow-md shadow-danger_red/10"
+              >
+                {writeOffLoading ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Save size={14} />
+                )}
+                تأكيد الشطب والتسجيل
+              </button>
+              <button
+                disabled={writeOffLoading}
+                onClick={() => setWriteOffConfirmOpen(false)}
+                className="px-5 py-2.5 bg-background_primary hover:bg-background_card_hover text-text_secondary hover:text-text_primary border border-border_default rounded-xl text-xs font-bold transition-all"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
         </div>
       )}
-      </div>
     </div>
   );
 }
