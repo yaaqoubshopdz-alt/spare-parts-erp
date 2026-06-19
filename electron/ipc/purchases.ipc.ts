@@ -9,6 +9,11 @@ import { DatabaseService } from '../services/database.service';
 import { AccountingEngine } from '../services/accounting.service';
 import { AuthService } from '../services/auth.service';
 
+function getLocalDateString() {
+  const tzOffset = new Date().getTimezoneOffset() * 60000;
+  return new Date(Date.now() - tzOffset).toISOString().split('T')[0];
+}
+
 export function registerPurchasesIPC() {
   const db = () => DatabaseService.getRawDb();
   
@@ -61,9 +66,11 @@ export function registerPurchasesIPC() {
                pr.barcode as product_barcode,
                pr.is_active as product_is_active,
                pr.has_sub_unit,
-               pr.pieces_per_box
+               pr.pieces_per_box,
+               u.name as unit_name
         FROM purchase_invoice_items pi 
         LEFT JOIN products pr ON pi.product_id = pr.id 
+        LEFT JOIN units u ON pr.unit_id = u.id
         WHERE pi.invoice_id = ?
       `).all(id);
       return { success: true, data: { ...(invoice as any), items } };
@@ -115,6 +122,7 @@ export function registerPurchasesIPC() {
         let invoiceNumber: string;
         let isNew = false;
         let needsFirstTimeEffects = false;
+        let shouldUpdateDateTime = false;
 
         // 1. تحديد (CREATE or UPDATE)
         if (data.id) {
@@ -135,6 +143,9 @@ export function registerPurchasesIPC() {
             }
           } else if (data.status === 'confirmed') {
             needsFirstTimeEffects = true;
+            if (!data.custom_date) {
+              shouldUpdateDateTime = true;
+            }
           }
         } else {
           // CREATE
@@ -142,7 +153,7 @@ export function registerPurchasesIPC() {
           const customDateVal = data.custom_date || null;
           const ins = raw.prepare(`
             INSERT INTO purchase_invoices (invoice_number, session_id, supplier_invoice_number, supplier_id, date, subtotal, tax_amount, discount_amount, total, paid, remaining, status, notes, user_id)
-            VALUES (?, ?, ?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, COALESCE(?, date('now', 'localtime')), ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(invoiceNumber, data.session_id || null, data.supplier_invoice_number || null, data.supplier_id || null, customDateVal, data.subtotal, data.tax_amount, data.discount_amount, data.total, data.paid, data.total - data.paid, data.status || 'draft', data.notes || null, userId);
           invoiceId = ins.lastInsertRowid as number;
           isNew = true;
@@ -150,7 +161,7 @@ export function registerPurchasesIPC() {
         }
 
         // 3. تحديث Header وتخزين العناصر
-        updatePurchaseInvoiceHeader(raw, invoiceId, data);
+        updatePurchaseInvoiceHeader(raw, invoiceId, data, shouldUpdateDateTime);
         raw.prepare('DELETE FROM purchase_invoice_items WHERE invoice_id = ?').run(invoiceId);
         
         const insertItem = raw.prepare(`
@@ -189,15 +200,12 @@ export function registerPurchasesIPC() {
       
       const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(newItem.product_id);
       let newQty = newItem.quantity;
-      if (prod?.has_sub_unit && newItem.unit === 'علبة') {
-        newQty = newItem.quantity * (prod.pieces_per_box || 1);
+      if (prod?.has_sub_unit) {
+        newQty = newItem.unit === 'علبة' ? newItem.quantity : (newItem.quantity / (prod.pieces_per_box || 1));
       }
 
       if (oldItem) {
-        let oldQty = oldItem.quantity;
-        if (prod?.has_sub_unit && oldItem.unit === 'علبة') {
-          oldQty = oldItem.quantity * (prod.pieces_per_box || 1);
-        }
+        let oldQty = oldItem.unit === 'علبة' ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
         const delta = newQty - oldQty;
         if (delta !== 0) {
           raw.prepare('UPDATE stock_balances SET quantity = quantity + ? WHERE product_id = ? AND location_id = 1').run(delta, newItem.product_id);
@@ -207,13 +215,18 @@ export function registerPurchasesIPC() {
       }
       // تحديث أسعار المنتج وحفظ السعر القديم
       const oldProd = raw.prepare('SELECT purchase_price, wholesale_price, retail_price FROM products WHERE id = ?').get(newItem.product_id) as any;
+      let calculatedPurchasePrice = newItem.unit_price;
+      if (prod?.has_sub_unit && newItem.unit === 'علبة') {
+        calculatedPurchasePrice = newItem.unit_price / (prod.pieces_per_box || 1);
+      }
+
       if (oldProd) {
         const insertHistory = raw.prepare(`
           INSERT INTO price_history (product_id, field_name, old_value, new_value, changed_by, reference_type, reference_id, created_at)
           VALUES (?, ?, ?, ?, ?, 'purchase_invoice', ?, datetime('now'))
         `);
-        if (oldProd.purchase_price !== newItem.unit_price) {
-          insertHistory.run(newItem.product_id, 'purchase_price', oldProd.purchase_price, newItem.unit_price, userId, invoiceId);
+        if (oldProd.purchase_price !== calculatedPurchasePrice) {
+          insertHistory.run(newItem.product_id, 'purchase_price', oldProd.purchase_price, calculatedPurchasePrice, userId, invoiceId);
         }
         if (newItem.wholesale_price !== undefined && newItem.wholesale_price !== null && oldProd.wholesale_price !== newItem.wholesale_price) {
           insertHistory.run(newItem.product_id, 'wholesale_price', oldProd.wholesale_price, newItem.wholesale_price, userId, invoiceId);
@@ -222,15 +235,15 @@ export function registerPurchasesIPC() {
           insertHistory.run(newItem.product_id, 'retail_price', oldProd.retail_price, newItem.retail_price, userId, invoiceId);
         }
       }
-      raw.prepare('UPDATE products SET purchase_price = ?, wholesale_price = COALESCE(?, wholesale_price), retail_price = COALESCE(?, retail_price), updated_at = datetime(\'now\') WHERE id = ?').run(newItem.unit_price, newItem.wholesale_price || null, newItem.retail_price || null, newItem.product_id);
+      raw.prepare('UPDATE products SET purchase_price = ?, wholesale_price = COALESCE(?, wholesale_price), retail_price = COALESCE(?, retail_price), updated_at = datetime(\'now\') WHERE id = ?').run(calculatedPurchasePrice, newItem.wholesale_price || null, newItem.retail_price || null, newItem.product_id);
     }
     
     for (const oldItem of oldItems) {
       if (!newData.items.find((i: any) => i.product_id === oldItem.product_id)) {
         const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(oldItem.product_id);
         let oldQty = oldItem.quantity;
-        if (prod?.has_sub_unit && oldItem.unit === 'علبة') {
-          oldQty = oldItem.quantity * (prod.pieces_per_box || 1);
+        if (prod?.has_sub_unit) {
+          oldQty = oldItem.unit === 'علبة' ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
         }
         raw.prepare('UPDATE stock_balances SET quantity = quantity - ? WHERE product_id = ? AND location_id = 1').run(oldQty, oldItem.product_id);
       }
@@ -251,7 +264,7 @@ export function registerPurchasesIPC() {
     // تطبيق الدفعة الجديدة
     if (newData.paid > 0) {
       const cashBoxId = newData.cash_box_id || 1;
-      const paymentDate = newData.custom_date || new Date().toISOString().split('T')[0];
+      const paymentDate = newData.custom_date || getLocalDateString();
       raw.prepare(`INSERT INTO payments (payment_number, type, party_type, party_id, amount, direction, payment_method, date, invoice_id, user_id) VALUES (?, 'purchase', 'supplier', ?, ?, 'out', 'cash', ?, ?, ?)`).run(`PAY-${Date.now()}`, newData.supplier_id || 0, newData.paid, paymentDate, invoiceId, userId);
       raw.prepare('UPDATE cash_boxes SET current_balance = current_balance - ? WHERE id = ?').run(newData.paid, cashBoxId);
     }
@@ -275,14 +288,25 @@ export function registerPurchasesIPC() {
     return `${prefix}${String(nextSeq).padStart(3, '0')}`;
   }
 
-  function updatePurchaseInvoiceHeader(raw: any, invoiceId: number, data: any) {
+  function updatePurchaseInvoiceHeader(raw: any, invoiceId: number, data: any, shouldUpdateDateTime: boolean = false) {
     const customDateVal = data.custom_date || null;
-    raw.prepare(`
-      UPDATE purchase_invoices SET 
-        supplier_id = ?, supplier_invoice_number = ?, subtotal = ?, tax_amount = ?, discount_amount = ?,
-        total = ?, paid = ?, remaining = ?, status = ?, notes = ?, date = COALESCE(?, date), updated_at = datetime('now')
-      WHERE id = ?
-    `).run(data.supplier_id || null, data.supplier_invoice_number || null, data.subtotal, data.tax_amount, data.discount_amount, data.total, data.paid, data.total - data.paid, data.status || 'draft', data.notes || null, customDateVal, invoiceId);
+    if (shouldUpdateDateTime) {
+      raw.prepare(`
+        UPDATE purchase_invoices SET 
+          supplier_id = ?, supplier_invoice_number = ?, subtotal = ?, tax_amount = ?, discount_amount = ?,
+          total = ?, paid = ?, remaining = ?, status = ?, notes = ?, 
+          date = COALESCE(?, date('now', 'localtime')), 
+          updated_at = datetime('now')
+        WHERE id = ?
+      `).run(data.supplier_id || null, data.supplier_invoice_number || null, data.subtotal, data.tax_amount, data.discount_amount, data.total, data.paid, data.total - data.paid, data.status || 'draft', data.notes || null, customDateVal, invoiceId);
+    } else {
+      raw.prepare(`
+        UPDATE purchase_invoices SET 
+          supplier_id = ?, supplier_invoice_number = ?, subtotal = ?, tax_amount = ?, discount_amount = ?,
+          total = ?, paid = ?, remaining = ?, status = ?, notes = ?, date = COALESCE(?, date), updated_at = datetime('now')
+        WHERE id = ?
+      `).run(data.supplier_id || null, data.supplier_invoice_number || null, data.subtotal, data.tax_amount, data.discount_amount, data.total, data.paid, data.total - data.paid, data.status || 'draft', data.notes || null, customDateVal, invoiceId);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -295,8 +319,8 @@ export function registerPurchasesIPC() {
     for (const item of items as any[]) {
       const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
       let qty = item.quantity;
-      if (prod?.has_sub_unit && item.unit === 'علبة') {
-        qty = item.quantity * (prod.pieces_per_box || 1);
+      if (prod?.has_sub_unit) {
+        qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
       }
       raw.prepare('UPDATE stock_balances SET quantity = quantity - ? WHERE product_id = ? AND location_id = 1').run(qty, item.product_id);
     }
@@ -348,8 +372,8 @@ export function registerPurchasesIPC() {
     for (const item of data.items) {
       const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
       let qty = item.quantity;
-      if (prod?.has_sub_unit && item.unit === 'علبة') {
-        qty = item.quantity * (prod.pieces_per_box || 1);
+      if (prod?.has_sub_unit) {
+        qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
       }
 
       const stock: any = raw.prepare('SELECT id FROM stock_balances WHERE product_id = ? AND location_id = 1').get(item.product_id);
@@ -361,13 +385,18 @@ export function registerPurchasesIPC() {
 
       // تحديث سعر الشراء والبيع للمنتج وحفظ السعر القديم
       const oldProd = raw.prepare('SELECT purchase_price, wholesale_price, retail_price FROM products WHERE id = ?').get(item.product_id) as any;
+      let calculatedPurchasePrice = item.unit_price;
+      if (prod?.has_sub_unit && item.unit === 'علبة') {
+        calculatedPurchasePrice = item.unit_price / (prod.pieces_per_box || 1);
+      }
+
       if (oldProd) {
         const insertHistory = raw.prepare(`
           INSERT INTO price_history (product_id, field_name, old_value, new_value, changed_by, reference_type, reference_id, created_at)
           VALUES (?, ?, ?, ?, ?, 'purchase_invoice', ?, datetime('now'))
         `);
-        if (oldProd.purchase_price !== item.unit_price) {
-          insertHistory.run(item.product_id, 'purchase_price', oldProd.purchase_price, item.unit_price, userId, invoiceId);
+        if (oldProd.purchase_price !== calculatedPurchasePrice) {
+          insertHistory.run(item.product_id, 'purchase_price', oldProd.purchase_price, calculatedPurchasePrice, userId, invoiceId);
         }
         if (item.wholesale_price !== undefined && item.wholesale_price !== null && oldProd.wholesale_price !== item.wholesale_price) {
           insertHistory.run(item.product_id, 'wholesale_price', oldProd.wholesale_price, item.wholesale_price, userId, invoiceId);
@@ -376,13 +405,13 @@ export function registerPurchasesIPC() {
           insertHistory.run(item.product_id, 'retail_price', oldProd.retail_price, item.retail_price, userId, invoiceId);
         }
       }
-      raw.prepare('UPDATE products SET purchase_price = ?, wholesale_price = COALESCE(?, wholesale_price), retail_price = COALESCE(?, retail_price), updated_at = datetime(\'now\') WHERE id = ?').run(item.unit_price, item.wholesale_price || null, item.retail_price || null, item.product_id);
+      raw.prepare('UPDATE products SET purchase_price = ?, wholesale_price = COALESCE(?, wholesale_price), retail_price = COALESCE(?, retail_price), updated_at = datetime(\'now\') WHERE id = ?').run(calculatedPurchasePrice, item.wholesale_price || null, item.retail_price || null, item.product_id);
     }
 
     // الصندوق
     if (data.paid > 0) {
       const cashBoxId = data.cash_box_id || 1;
-      const paymentDate = data.custom_date || new Date().toISOString().split('T')[0];
+      const paymentDate = data.custom_date || getLocalDateString();
       raw.prepare(`INSERT INTO payments (payment_number, type, party_type, party_id, amount, direction, payment_method, date, invoice_id, user_id) VALUES (?, 'purchase', 'supplier', ?, ?, 'out', 'cash', ?, ?, ?)`).run(`PAY-${Date.now()}`, data.supplier_id || 0, data.paid, paymentDate, invoiceId, userId);
       raw.prepare('UPDATE cash_boxes SET current_balance = current_balance - ? WHERE id = ?').run(data.paid, cashBoxId);
     }
@@ -394,7 +423,7 @@ export function registerPurchasesIPC() {
     }
 
     // قيد محاسبي
-    const entryDate = data.custom_date || new Date().toISOString().split('T')[0];
+    const entryDate = data.custom_date || getLocalDateString();
     AccountingEngine.recordPurchase(raw, { id: invoiceId, invoice_number: invoiceNumber, date: entryDate, total: data.total, paid: data.paid, remaining: debt, supplier_id: data.supplier_id || null }, userId);
   }
 

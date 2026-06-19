@@ -214,6 +214,48 @@ export function registerAccountingIPC() {
     } catch (e: any) { return { success: false, error: e.message }; }
   });
 
+  /** تسجيل حدث في سجل المراجعة عبر db:audit:log للواجهة الأمامية */
+  ipcMain.handle('db:audit:log', async (_e, data: {
+    action: string;
+    details?: string;
+    description?: string;
+    table_name?: string;
+    record_id?: number;
+    user_id?: number;
+  }) => {
+    try {
+      const session = await AuthService.checkSession();
+      if (!session.success) return { success: false, error: 'غير مصرح' };
+      const userId = session.user.id;
+
+      const raw = db();
+      const action = data.action || 'general';
+      let tableName = data.table_name;
+      if (!tableName) {
+        if (action.includes('sale') || action.includes('pos')) {
+          tableName = 'sales_invoices';
+        } else if (action.includes('purchase')) {
+          tableName = 'purchase_invoices';
+        } else {
+          tableName = 'general';
+        }
+      }
+      const desc = data.description || data.details || '';
+
+      raw.prepare(`
+        INSERT INTO audit_log (user_id, action, table_name, record_id, description, created_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now'))
+      `).run(
+        userId, action, tableName,
+        data.record_id || null, desc
+      );
+      return { success: true };
+    } catch (e: any) {
+      console.error('[db:audit:log] error:', e);
+      return { success: false, error: e.message };
+    }
+  });
+
   /** استعراض سجل المراجعة */
   ipcMain.handle('audit:getLog', async (_e, filters?: {
     user_id?: number; action?: string; table_name?: string;
@@ -490,11 +532,16 @@ export function registerAccountingIPC() {
   });
 
   /** تقرير أعمار الديون (Aging Report) */
-  ipcMain.handle('accounting:getAgingReport', async (_e, partyType: 'customer' | 'supplier') => {
+  ipcMain.handle('accounting:getAgingReport', async (_e, partyType: 'customer' | 'supplier', thresholds?: { days1?: number; days2?: number; days3?: number }) => {
     try {
       const raw = db();
-      const accountId = partyType === 'customer' ? 4 : 7; // AR or AP
+      AccountingEngine._initAccounts(raw);
+      const accountId = partyType === 'customer' ? AccountingEngine.ACCOUNTS.AR : AccountingEngine.ACCOUNTS.AP;
       const balanceExpr = partyType === 'customer' ? 'jel.debit - jel.credit' : 'jel.credit - jel.debit';
+
+      const days1 = thresholds?.days1 ?? 30;
+      const days2 = thresholds?.days2 ?? 60;
+      const days3 = thresholds?.days3 ?? 90;
 
       const aging = raw.prepare(`
         SELECT 
@@ -503,10 +550,10 @@ export function registerAccountingIPC() {
             WHEN '${partyType}' = 'customer' THEN c.name
             ELSE s.name
           END as party_name,
-          SUM(CASE WHEN julianday('now') - julianday(je.date) <= 30 THEN (${balanceExpr}) ELSE 0 END) as current_30,
-          SUM(CASE WHEN julianday('now') - julianday(je.date) > 30 AND julianday('now') - julianday(je.date) <= 60 THEN (${balanceExpr}) ELSE 0 END) as days_31_60,
-          SUM(CASE WHEN julianday('now') - julianday(je.date) > 60 AND julianday('now') - julianday(je.date) <= 90 THEN (${balanceExpr}) ELSE 0 END) as days_61_90,
-          SUM(CASE WHEN julianday('now') - julianday(je.date) > 90 THEN (${balanceExpr}) ELSE 0 END) as over_90,
+          SUM(CASE WHEN julianday('now') - julianday(je.date) <= ? THEN (${balanceExpr}) ELSE 0 END) as current_30,
+          SUM(CASE WHEN julianday('now') - julianday(je.date) > ? AND julianday('now') - julianday(je.date) <= ? THEN (${balanceExpr}) ELSE 0 END) as days_31_60,
+          SUM(CASE WHEN julianday('now') - julianday(je.date) > ? AND julianday('now') - julianday(je.date) <= ? THEN (${balanceExpr}) ELSE 0 END) as days_61_90,
+          SUM(CASE WHEN julianday('now') - julianday(je.date) > ? THEN (${balanceExpr}) ELSE 0 END) as over_90,
           SUM(${balanceExpr}) as total
         FROM journal_entry_lines jel
         JOIN journal_entries je ON jel.entry_id = je.id
@@ -516,9 +563,53 @@ export function registerAccountingIPC() {
         GROUP BY jel.party_id
         HAVING total > 0.01
         ORDER BY total DESC
-      `).all(accountId, partyType) as any[];
+      `).all(days1, days1, days2, days2, days3, days3, accountId, partyType) as any[];
 
       return { success: true, data: aging };
+    } catch (e: any) { return { success: false, error: e.message }; }
+  });
+
+  /** شطب دين زبون كديون معدومة (خسائر) */
+  ipcMain.handle('accounting:writeOffCustomerDebt', async (_e, data: { customerId: number, amount: number, notes?: string, _user_id?: number }) => {
+    try {
+      const raw = db();
+      const tx = raw.transaction(() => {
+        const today = new Date().toISOString().split('T')[0];
+        
+        // التحقق من تاريخ الإقفال
+        AccountingEngine._checkClosingDate(raw, today);
+        AccountingEngine._initAccounts(raw);
+
+        // إنشاء قيد شطب دين كديون معدومة
+        const entryId = AccountingEngine.createJournalEntry(raw, {
+          date: today,
+          description: `شطب دين كديون معدومة للزبون - ${data.notes || ''}`,
+          reference_type: 'debt_write_off',
+          reference_id: data.customerId,
+          user_id: data._user_id || 1,
+          lines: [
+            { account_id: AccountingEngine.ACCOUNTS.OP_EXPENSE, debit: data.amount, credit: 0 },
+            { 
+              account_id: AccountingEngine.ACCOUNTS.AR, 
+              debit: 0, 
+              credit: data.amount, 
+              party_type: 'customer', 
+              party_id: data.customerId 
+            }
+          ]
+        });
+
+        // تحديث رصيد الزبون في قاعدة البيانات
+        raw.prepare('UPDATE customers SET balance = balance - ? WHERE id = ?').run(data.amount, data.customerId);
+
+        // تسجيل في سجل المراجعة (Audit Log)
+        raw.prepare(`
+          INSERT INTO audit_log (user_id, action, table_name, record_id, description, created_at)
+          VALUES (?, 'debt_write_off', 'customers', ?, ?, datetime('now'))
+        `).run(data._user_id || 1, data.customerId, `شطب دين كديون معدومة للزبون بمبلغ ${data.amount}`);
+      });
+      tx();
+      return { success: true };
     } catch (e: any) { return { success: false, error: e.message }; }
   });
 

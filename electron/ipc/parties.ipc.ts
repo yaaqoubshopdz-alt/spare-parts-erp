@@ -330,29 +330,59 @@ export function registerPartiesIPC() {
     } catch (e: any) { return { success: false, error: e.message }; }
   });
 
-  ipcMain.handle('db:customers:addPayment', async (_e, data: { customer_id: number, amount: number, payment_method: string, notes?: string, _user_id?: number }) => {
+  ipcMain.handle('db:customers:addPayment', async (_e, data: { customer_id: number, amount: number, payment_method: string, notes?: string, isRecovery?: boolean, _user_id?: number }) => {
     try {
       const raw = db();
       const tx = raw.transaction(() => {
         const paymentNumber = 'PAY-C-' + Date.now();
+        const type = data.isRecovery ? 'recovery' : 'collection';
         const insertRes = raw.prepare(`
           INSERT INTO payments (payment_number, type, direction, party_id, party_type, amount, payment_method, date, notes, created_at)
-          VALUES (?, 'collection', 'in', ?, 'customer', ?, ?, date('now'), ?, datetime('now', 'localtime'))
-        `).run(paymentNumber, data.customer_id, data.amount, data.payment_method, data.notes || null);
+          VALUES (?, ?, 'in', ?, 'customer', ?, ?, date('now'), ?, datetime('now', 'localtime'))
+        `).run(paymentNumber, type, data.customer_id, data.amount, data.payment_method, data.notes || null);
         
-        raw.prepare('UPDATE customers SET balance = balance - ? WHERE id = ?').run(data.amount, data.customer_id);
+        if (!data.isRecovery) {
+          raw.prepare('UPDATE customers SET balance = balance - ? WHERE id = ?').run(data.amount, data.customer_id);
+        }
         raw.prepare('UPDATE cash_boxes SET current_balance = current_balance + ? WHERE id = 1').run(data.amount);
 
         // المحرك المحاسبي
-        AccountingEngine.recordPayment(raw, {
-          id: insertRes.lastInsertRowid,
-          payment_number: paymentNumber,
-          direction: 'in',
-          amount: data.amount,
-          party_type: 'customer',
-          party_id: data.customer_id,
-          date: new Date().toISOString().split('T')[0]
-        }, data._user_id || 1);
+        if (data.isRecovery) {
+          AccountingEngine._initAccounts(raw);
+          // 1. قيد إعادة إثبات الدين (عكس الشطب كإيراد)
+          AccountingEngine.createJournalEntry(raw, {
+            date: new Date().toISOString().split('T')[0],
+            description: `إعادة إثبات دين مشطوب سابقاً - سند رقم ${paymentNumber}`,
+            reference_type: 'debt_recovery_reversal',
+            reference_id: insertRes.lastInsertRowid,
+            user_id: data._user_id || 1,
+            lines: [
+              { account_id: AccountingEngine.ACCOUNTS.AR, debit: data.amount, credit: 0, party_type: 'customer', party_id: data.customer_id },
+              { account_id: AccountingEngine.ACCOUNTS.OTHER_REVENUE, debit: 0, credit: data.amount }
+            ]
+          });
+
+          // 2. قيد تحصيل الدفعة نقداً
+          AccountingEngine.recordPayment(raw, {
+            id: insertRes.lastInsertRowid,
+            payment_number: paymentNumber,
+            direction: 'in',
+            amount: data.amount,
+            party_type: 'customer',
+            party_id: data.customer_id,
+            date: new Date().toISOString().split('T')[0]
+          }, data._user_id || 1);
+        } else {
+          AccountingEngine.recordPayment(raw, {
+            id: insertRes.lastInsertRowid,
+            payment_number: paymentNumber,
+            direction: 'in',
+            amount: data.amount,
+            party_type: 'customer',
+            party_id: data.customer_id,
+            date: new Date().toISOString().split('T')[0]
+          }, data._user_id || 1);
+        }
       });
       tx();
       return { success: true };

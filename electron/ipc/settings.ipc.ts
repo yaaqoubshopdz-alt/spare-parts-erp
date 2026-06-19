@@ -213,6 +213,7 @@ export function registerSettingsIPC() {
       raw.prepare(`
         CREATE TRIGGER IF NOT EXISTS prevent_sales_delete
         BEFORE DELETE ON sales_invoices
+        FOR EACH ROW WHEN OLD.status != 'draft'
         BEGIN
           SELECT RAISE(ABORT, 'لا يمكن حذف فواتير المبيعات. يجب إلغاؤها.');
         END;
@@ -221,10 +222,12 @@ export function registerSettingsIPC() {
       raw.prepare(`
         CREATE TRIGGER IF NOT EXISTS prevent_purchases_delete
         BEFORE DELETE ON purchase_invoices
+        FOR EACH ROW WHEN OLD.status != 'draft'
         BEGIN
           SELECT RAISE(ABORT, 'لا يمكن حذف فواتير المشتريات. يجب إلغاؤها.');
         END;
       `).run();
+
 
       return true;
     });

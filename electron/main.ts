@@ -108,6 +108,7 @@ import { DatabaseService } from './services/database.service';
 import { AuthService } from './services/auth.service';
 import { AccountingEngine } from './services/accounting.service';
 import { BackupService } from './services/backup.service';
+import { OtaUpdaterService } from './services/ota-updater.service';
 
 // IPC Modules
 import { registerProductsIPC } from './ipc/products.ipc';
@@ -155,10 +156,26 @@ function createWindow() {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    const updatesIndexPath = OtaUpdaterService.getUpdatesIndexPath();
+    if (updatesIndexPath) {
+      console.log('[Main] Loading app from OTA updates folder:', updatesIndexPath);
+      mainWindow.loadFile(updatesIndexPath);
+    } else {
+      console.log('[Main] Loading app from default packaged folder');
+      mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    }
     // Temporarily open DevTools in production to diagnose renderer crashes
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
+
+  // Check for hot updates after window is created (delay to not block boot)
+  setTimeout(() => {
+    if (mainWindow) {
+      OtaUpdaterService.checkForUpdates(mainWindow).catch((err) => {
+        console.error('[Main] Background OTA update failed:', err);
+      });
+    }
+  }, 5000);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -251,6 +268,15 @@ function registerAllIPC() {
   registerAccountingIPC();
   registerInventoryCountIPC();
   registerMobileIPC();
+
+  // OTA Update
+  ipcMain.handle('ota:check', async () => {
+    if (mainWindow) {
+      return OtaUpdaterService.checkForUpdates(mainWindow);
+    }
+    return { success: false, updated: false, error: 'No active window' };
+  });
+
   console.log('[Main] All IPC modules registered');
 }
 

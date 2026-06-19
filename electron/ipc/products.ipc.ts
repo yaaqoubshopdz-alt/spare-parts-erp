@@ -333,6 +333,7 @@ export function registerProductsIPC() {
         SELECT p.id, p.barcode, p.internal_code, p.name, p.name_fr,
                p.purchase_price, p.wholesale_price, p.retail_price,
                p.unit_id, u.name as unit_name,
+               p.has_sub_unit, p.pieces_per_box,
                COALESCE(sb.quantity, 0) as total_stock,
                COALESCE(su.usage_count, 0) as term_usage,
                COALESCE(pu.usage_count, 0) as global_usage
@@ -759,6 +760,7 @@ export function registerProductsIPC() {
          SELECT p.id, p.barcode, p.internal_code, p.name, p.name_fr,
                p.wholesale_price, p.retail_price,
                p.category_id, p.brand_id, p.unit_id,
+               p.has_sub_unit, p.pieces_per_box,
                c.name as category_name,
                b.name as brand_name,
                u.name as unit_name,
@@ -879,10 +881,8 @@ export function registerProductsIPC() {
           }
         }
 
-        // Initialize stock balance at default location (scale if sub-unit product)
-        const initialQty = data.has_sub_unit && data.pieces_per_box
-          ? (data.initial_stock ?? 0) * (data.pieces_per_box || 1)
-          : (data.initial_stock ?? 0);
+        // Initialize stock balance at default location (initial stock represents base boxes directly)
+        const initialQty = (data.initial_stock ?? 0);
 
         raw.prepare(`
           INSERT OR IGNORE INTO stock_balances (product_id, location_id, quantity, updated_at)
@@ -900,7 +900,7 @@ export function registerProductsIPC() {
             user_id: data._user_id || 1,
             lines: [
               { account_id: AccountingEngine.ACCOUNTS.INVENTORY, debit: totalValue, credit: 0 },
-              { account_id: AccountingEngine.ACCOUNTS.OTHER_REVENUE, debit: 0, credit: totalValue, party_type: 'product', party_id: Number(productId) }
+              { account_id: AccountingEngine.ACCOUNTS.OTHER_REVENUE, debit: 0, credit: totalValue, party_type: 'none', party_id: null }
             ]
           });
         }
@@ -1061,6 +1061,17 @@ export function registerProductsIPC() {
             SET product_barcode_snapshot = ? 
             WHERE product_id = ? AND invoice_id IN (SELECT id FROM sales_invoices WHERE status = 'draft')
           `).run(data.barcode, id);
+        }
+      }
+
+      if (data.initial_stock !== undefined) {
+        const currentStockRow: any = raw.prepare('SELECT quantity FROM stock_balances WHERE product_id = ? AND location_id = 1').get(id);
+        const currentQty = currentStockRow ? currentStockRow.quantity : 0;
+        if (currentQty !== data.initial_stock) {
+          raw.prepare(`
+            INSERT OR REPLACE INTO stock_balances (product_id, location_id, quantity, updated_at)
+            VALUES (?, 1, ?, datetime('now'))
+          `).run(id, data.initial_stock);
         }
       }
 

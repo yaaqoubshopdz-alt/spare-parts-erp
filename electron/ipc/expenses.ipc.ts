@@ -6,6 +6,11 @@ import { DatabaseService } from '../services/database.service';
 import { AccountingEngine } from '../services/accounting.service';
 import { AuthService } from '../services/auth.service';
 
+function getLocalDateString() {
+  const tzOffset = new Date().getTimezoneOffset() * 60000;
+  return new Date(Date.now() - tzOffset).toISOString().split('T')[0];
+}
+
 export function registerExpensesIPC() {
   const db = () => DatabaseService.getRawDb();
 
@@ -67,7 +72,7 @@ export function registerExpensesIPC() {
         INSERT INTO expenses (
           expense_number, amount, category, description, date, 
           user_id, created_at, is_active
-        ) VALUES (?, ?, ?, ?, date('now'), ?, datetime('now'), 1)
+        ) VALUES (?, ?, ?, ?, date('now', 'localtime'), ?, datetime('now', 'localtime'), 1)
       `).run(expenseNumber, data.amount, data.category, data.description || null, userId);
       
       const expenseId = res.lastInsertRowid;
@@ -81,7 +86,7 @@ export function registerExpensesIPC() {
         amount: data.amount,
         title: data.category,
         notes: data.description || null,
-        date: new Date().toISOString().split('T')[0]
+        date: getLocalDateString()
       }, userId);
 
       return expenseId;
@@ -114,7 +119,7 @@ export function registerExpensesIPC() {
       AccountingEngine.reverseEntry(raw, 'expense', id, userId, 'إلغاء مصروف');
 
       // 2. تحديث المصروف ليكون محذوفاً بدلاً من حذفه نهائياً
-      raw.prepare('UPDATE expenses SET is_active = 0, notes = COALESCE(notes, "") || " [تم الإلغاء]" WHERE id = ?').run(id);
+      raw.prepare("UPDATE expenses SET is_active = 0, notes = COALESCE(notes, '') || ' [تم الإلغاء]' WHERE id = ?").run(id);
 
       return true;
     });

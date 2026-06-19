@@ -17,7 +17,8 @@ export function calcItemDiscount(
   if (discountType === 'percent') {
     return roundTo2(unitPrice * quantity * (discountValue / 100));
   }
-  return roundTo2(discountValue);
+  const sign = quantity >= 0 ? 1 : -1;
+  return roundTo2(discountValue * sign);
 }
 
 /** Calculate item total */
@@ -39,7 +40,8 @@ export function calcGlobalDiscount(
   if (discountType === 'percent') {
     return roundTo2(subtotal * (discountValue / 100));
   }
-  return roundTo2(discountValue);
+  const sign = subtotal >= 0 ? 1 : -1;
+  return roundTo2(discountValue * sign);
 }
 
 /** Calculate tax amount */

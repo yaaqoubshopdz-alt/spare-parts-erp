@@ -32,6 +32,8 @@ const SORT_MAP: Record<string, string> = {
 
 type SortDir = 'asc' | 'desc' | null;
 
+const formatQty = (v: number) => parseFloat(Number(v).toFixed(2));
+
 export default function LowStockPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -178,7 +180,7 @@ export default function LowStockPage() {
       width: 120,
       resizable: true,
       draggable: true,
-      render: (p) => <span className="font-numbers font-bold text-text_primary">{p.min_stock_level}</span>,
+      render: (p) => <span className="font-numbers font-bold text-text_primary">{formatQty(p.min_stock_level)}</span>,
     },
     {
       key: 'current_stock',
@@ -190,7 +192,7 @@ export default function LowStockPage() {
       draggable: true,
       render: (p) => (
         <span className={`font-numbers font-bold ${p.current_stock <= 0 ? 'text-danger_red' : 'text-warning_amber'}`}>
-          {p.current_stock}
+          {formatQty(p.current_stock)}
         </span>
       ),
     },
@@ -204,7 +206,7 @@ export default function LowStockPage() {
       draggable: true,
       render: (p) => (
         <span className="font-numbers font-black text-danger_red">
-          {Math.max(0, p.shortage)}
+          {formatQty(Math.max(0, p.shortage))}
         </span>
       ),
     },
@@ -331,7 +333,7 @@ export default function LowStockPage() {
               <Package size={20} className="text-warning_amber" />
             </div>
             <div>
-              <p className="text-xl font-black text-warning_amber font-numbers">{totalShortage.toFixed(0)}</p>
+              <p className="text-xl font-black text-warning_amber font-numbers">{formatQty(totalShortage)}</p>
               <p className="text-[11px] text-text_muted font-bold">إجمالي النقص</p>
             </div>
           </div>

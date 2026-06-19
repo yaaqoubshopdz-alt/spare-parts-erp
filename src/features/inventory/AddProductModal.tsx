@@ -13,7 +13,6 @@ interface AddProductModalProps {
   onSaved?: () => void;
   initialPurchasePrice?: number;
   productId?: number | null;
-  hideInitialStock?: boolean;
   initialData?: {
     name?: string;
     name_fr?: string;
@@ -178,7 +177,7 @@ function CustomSelect({ label, icon, options, value, onChange, placeholder, requ
   );
 }
 
-export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, initialPurchasePrice = 0, productId, hideInitialStock = false, initialData = null }: AddProductModalProps) {
+export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, initialPurchasePrice = 0, productId, initialData = null }: AddProductModalProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -286,7 +285,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
           barcode: p.barcode || p.internal_code || '',
           internal_code: p.barcode || p.internal_code || '',
           unit_id: p.unit_id || 0,
-          initial_stock: p.total_stock || 0,
+          initial_stock: (isDiv && qty > 0) ? ((p.total_stock || 0) * qty) : (p.total_stock || 0),
           purchase_price: bulkPurchasePrice,
           retail_price: p.retail_price || 0,
           retail_margin: retailMargin,
@@ -370,7 +369,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
     setLoading(true);
     try {
       const calculatedPurchasePrice = isDivisible && bulkQty > 0 ? (form.purchase_price / bulkQty) : form.purchase_price;
-      const productData = {
+      const productData: any = {
         name: form.name, 
         name_fr: form.name_fr || undefined,
         barcode: form.barcode || undefined, internal_code: form.barcode || undefined,
@@ -381,10 +380,11 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
         wholesale_price: isDivisible && containerSellPrice > 0 ? containerSellPrice : form.retail_price,
         retail_price: form.retail_price, min_stock_level: form.min_stock_level,
         pieces_per_box: isDivisible ? bulkQty : 1,
-        initial_stock: hideInitialStock ? 0 : (form.initial_stock || 0),
         _user_id: user?.id,
         fitments: fitments.map(f => ({ vehicle_brand_id: f.vehicle_brand_id, vehicle_model_id: f.vehicle_model_id }))
       };
+
+      productData.initial_stock = isDivisible && bulkQty > 0 ? (form.initial_stock / bulkQty) : (form.initial_stock || 0);
 
       let res: any;
       if (productId) {
@@ -398,8 +398,18 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
         showSuccess(productId ? 'تم تحديث المنتج بنجاح' : 'تم حفظ المنتج بنجاح');
         const calculatedPurchasePrice = isDivisible && bulkQty > 0 ? (form.purchase_price / bulkQty) : form.purchase_price;
         const calculatedWholesalePrice = isDivisible && containerSellPrice > 0 ? containerSellPrice : form.retail_price;
+        const selectedUnitName = units.find((u: any) => u.id === form.unit_id)?.name || 'حبة';
         if (onSuccess) {
-          onSuccess({ ...form, id, purchase_price: form.purchase_price, wholesale_price: calculatedWholesalePrice });
+          onSuccess({ 
+            ...form, 
+            id, 
+            purchase_price: calculatedPurchasePrice, 
+            wholesale_price: calculatedWholesalePrice,
+            has_sub_unit: isDivisible,
+            pieces_per_box: isDivisible ? bulkQty : 1,
+            unit_name: selectedUnitName,
+            unit: selectedUnitName
+          });
         }
         if (onSaved) {
           onSaved();
@@ -546,17 +556,27 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
 
                 {/* Row 4: الكمية الحالية + سعة الكيس/العلبة */}
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-                  {!hideInitialStock && (
-                    <div className="md:col-span-6">
-                      <label className="text-sm text-emerald-500 block mb-2 font-bold flex items-center gap-1.5">
-                        <Package size={16} className="text-emerald-500" />
-                        <span>{t('inventory.stock_current')}</span>
-                      </label>
-                      <input type="number" min={0} value={form.initial_stock || ''} onChange={e => setForm({ ...form, initial_stock: parseFloat(e.target.value) || 0 })}
-                        className="w-full bg-background_secondary dark:bg-white/[0.06] border border-border_default dark:border-white/10 rounded-xl px-4 py-3 text-base font-numbers text-emerald-600 dark:text-emerald-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all shadow-inner" />
-                    </div>
-                  )}
-                  <div className={hideInitialStock ? "md:col-span-12" : "md:col-span-6"}>
+                  <div className="md:col-span-6">
+                    <label className="text-sm text-emerald-500 block mb-2 font-bold flex items-center gap-1.5">
+                      <Package size={16} className="text-emerald-500" />
+                      <span>{productId ? 'المخزون الحالي' : 'الرصيد الابتدائي (أول المدة)'}</span>
+                    </label>
+                    <input type="number" min={0} value={form.initial_stock || ''} 
+                      onChange={e => setForm({ ...form, initial_stock: parseFloat(e.target.value) || 0 })}
+                      disabled={!!productId}
+                      className={`w-full bg-background_secondary dark:bg-white/[0.06] border border-border_default dark:border-white/10 rounded-xl px-4 py-3 text-base font-numbers outline-none transition-all shadow-inner ${
+                        productId 
+                          ? 'opacity-60 cursor-not-allowed text-text_muted bg-black/5 dark:bg-black/20' 
+                          : 'text-emerald-600 dark:text-emerald-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20'
+                      }`} 
+                    />
+                    {!!productId && (
+                      <p className="text-[11px] text-text_muted mt-1 font-bold">
+                        * لتعديل كمية منتج مسجل، استخدم نافذة "تسوية المخزون" لضمان صحة القيود المحاسبية.
+                      </p>
+                    )}
+                  </div>
+                  <div className="md:col-span-6">
                     <label className="text-sm text-violet-600 dark:text-violet-300 block mb-2 font-bold flex items-center gap-1.5">
                       <span>{labels.icon}</span>
                       <span>{t('inventory.capacity')} {labels.bulk} ({labels.unit})</span>
@@ -616,17 +636,27 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, onSaved, i
                 </div>
 
                 {/* Row 4: الكمية + الحد الأدنى */}
-                <div className={hideInitialStock ? "grid grid-cols-1 gap-5" : "grid grid-cols-1 md:grid-cols-2 gap-5"}>
-                  {!hideInitialStock && (
-                    <div>
-                      <label className="text-sm text-emerald-500 block mb-2 font-bold flex items-center gap-1.5">
-                        <Package size={16} className="text-emerald-500" />
-                        <span>{t('inventory.stock_current')}</span>
-                      </label>
-                      <input type="number" min={0} value={form.initial_stock || ''} onChange={e => setForm({ ...form, initial_stock: parseFloat(e.target.value) || 0 })}
-                        className="w-full bg-background_secondary dark:bg-white/[0.06] border border-border_default dark:border-white/10 rounded-xl px-4 py-3 text-base font-numbers text-emerald-600 dark:text-emerald-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all shadow-inner" />
-                    </div>
-                  )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="text-sm text-emerald-500 block mb-2 font-bold flex items-center gap-1.5">
+                      <Package size={16} className="text-emerald-500" />
+                      <span>{productId ? 'المخزون الحالي' : 'الرصيد الابتدائي (أول المدة)'}</span>
+                    </label>
+                    <input type="number" min={0} value={form.initial_stock || ''} 
+                      onChange={e => setForm({ ...form, initial_stock: parseFloat(e.target.value) || 0 })}
+                      disabled={!!productId}
+                      className={`w-full bg-background_secondary dark:bg-white/[0.06] border border-border_default dark:border-white/10 rounded-xl px-4 py-3 text-base font-numbers outline-none transition-all shadow-inner ${
+                        productId 
+                          ? 'opacity-60 cursor-not-allowed text-text_muted bg-black/5 dark:bg-black/20' 
+                          : 'text-emerald-600 dark:text-emerald-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20'
+                      }`} 
+                    />
+                    {!!productId && (
+                      <p className="text-[11px] text-text_muted mt-1 font-bold">
+                        * لتعديل كمية منتج مسجل، استخدم نافذة "تسوية المخزون" لضمان صحة القيود المحاسبية.
+                      </p>
+                    )}
+                  </div>
                   <div>
                     <label className="text-sm text-text_secondary block mb-2 font-bold flex items-center gap-1.5">
                       <Settings2 size={16} className="text-text_muted" />

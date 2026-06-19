@@ -62,7 +62,7 @@ export const AccountingEngine = {
     return entryId;
   },
 
-  updateSaleEntry(raw: any, data: { oldTotal: number, newTotal: number, invoiceId: number, date?: string }, userId: number) {
+  updateSaleEntry(raw: any, data: { oldTotal: number, newTotal: number, invoiceId: number, date?: string, oldCogs?: number, newCogs?: number }, userId: number) {
     this._initAccounts(raw);
     
     // Delete any existing adjustment entry for this invoice (cascades to lines)
@@ -77,11 +77,23 @@ export const AccountingEngine = {
     }
 
     const diff = data.newTotal - originalTotal;
-    if (Math.abs(diff) < 0.01) return;
-    const lines = [
-      { account_id: this.ACCOUNTS.REVENUE, debit: diff < 0 ? Math.abs(diff) : 0, credit: diff > 0 ? diff : 0 },
-      { account_id: this.ACCOUNTS.AR, debit: diff > 0 ? diff : 0, credit: diff < 0 ? Math.abs(diff) : 0 }
-    ];
+    const diffCogs = (data.newCogs !== undefined && data.oldCogs !== undefined) ? (data.newCogs - data.oldCogs) : 0;
+
+    if (Math.abs(diff) < 0.01 && Math.abs(diffCogs) < 0.01) return;
+
+    const lines: any[] = [];
+    if (Math.abs(diff) >= 0.01) {
+      lines.push(
+        { account_id: this.ACCOUNTS.REVENUE, debit: diff < 0 ? Math.abs(diff) : 0, credit: diff > 0 ? diff : 0 },
+        { account_id: this.ACCOUNTS.AR, debit: diff > 0 ? diff : 0, credit: diff < 0 ? Math.abs(diff) : 0 }
+      );
+    }
+    if (Math.abs(diffCogs) >= 0.01) {
+      lines.push(
+        { account_id: this.ACCOUNTS.COGS, debit: diffCogs > 0 ? diffCogs : 0, credit: diffCogs < 0 ? Math.abs(diffCogs) : 0 },
+        { account_id: this.ACCOUNTS.INVENTORY, debit: diffCogs < 0 ? Math.abs(diffCogs) : 0, credit: diffCogs > 0 ? diffCogs : 0 }
+      );
+    }
     this.createJournalEntry(raw, { date: data.date || new Date().toISOString().split('T')[0], description: `تسوية فاتورة مبيعات ${data.invoiceId}`, reference_type: 'sales_invoice_adjustment', reference_id: data.invoiceId, user_id: userId, lines });
   },
 
@@ -287,12 +299,12 @@ export const AccountingEngine = {
     if (data.type === 'surplus') {
       lines.push(
         { account_id: this.ACCOUNTS.INVENTORY, debit: data.amount, credit: 0, cost_center_id: null, party_type: 'none', party_id: null },
-        { account_id: this.ACCOUNTS.OTHER_REVENUE, debit: 0, credit: data.amount, cost_center_id: null, party_type: 'product', party_id: data.product_id }
+        { account_id: this.ACCOUNTS.OTHER_REVENUE, debit: 0, credit: data.amount, cost_center_id: null, party_type: 'none', party_id: null }
       );
     } else {
       lines.push(
         { account_id: this.ACCOUNTS.OP_EXPENSE, debit: data.amount, credit: 0, cost_center_id: null, party_type: 'none', party_id: null },
-        { account_id: this.ACCOUNTS.INVENTORY, debit: 0, credit: data.amount, cost_center_id: null, party_type: 'product', party_id: data.product_id }
+        { account_id: this.ACCOUNTS.INVENTORY, debit: 0, credit: data.amount, cost_center_id: null, party_type: 'none', party_id: null }
       );
     }
     this.createJournalEntry(raw, {

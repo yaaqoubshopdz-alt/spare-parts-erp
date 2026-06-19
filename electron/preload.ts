@@ -54,11 +54,11 @@ const ALLOWED_INVOKE_CHANNELS = [
   // Settings
   'db:settings:getAll', 'db:settings:update', 'db:settings:uploadLogo', 'db:settings:reset', 'dialog:selectDirectory',
   // Audit
-  'db:audit:getRecent',
+  'db:audit:getRecent', 'db:audit:log',
   // Accounting Engine
   'accounting:getClosingDate', 'accounting:lockPeriod', 'accounting:unlockPeriod', 'accounting:yearClose',
   'accounting:getBalanceSheet', 'accounting:getIncomeStatement', 'accounting:getCashFlow',
-  'accounting:getAgingReport', 'accounting:getChartOfAccounts', 'accounting:checkPermission',
+  'accounting:getAgingReport', 'accounting:writeOffCustomerDebt', 'accounting:getChartOfAccounts', 'accounting:checkPermission',
   'accounting:getFinancialOverview', 'accounting:getProfitAndLoss', 'accounting:getJournalEntry', 'accounting:getSimpleReports',
   'accounting:getProductProfitability',
   'audit:log', 'audit:getLog',
@@ -79,6 +79,8 @@ const ALLOWED_INVOKE_CHANNELS = [
   'window:minimize', 'window:maximize', 'window:close', 'window:capturePage', 'window:expand', 'window:shrink',
   // Mobile integration
   'mobile:get-server-info', 'mobile:get-status', 'mobile:get-pending-photos', 'mobile:request-photo', 'mobile:get-invoice-queue', 'mobile:mark-invoice-processed',
+  // OTA Update
+  'ota:check',
 ];
 
 contextBridge.exposeInMainWorld('electronAPI', {

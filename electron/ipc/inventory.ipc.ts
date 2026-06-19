@@ -33,26 +33,37 @@ export function registerInventoryIPC() {
         AccountingEngine._checkClosingDate(raw, new Date().toISOString().split('T')[0]);
 
         // 0. Validate quantity is not zero
-        const inputQty = Math.round(data.quantity * 10000) / 10000;
-        if (!data.quantity || isNaN(data.quantity) || inputQty === 0) {
+        if (!data.quantity || isNaN(data.quantity) || Math.round(data.quantity * 10000) / 10000 === 0) {
           throw new Error('فشلت العملية: كمية التسوية لا يمكن أن تكون صفراً.');
         }
 
+        // Get product details
+        const product: any = raw.prepare('SELECT name, purchase_price, has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(data.product_id);
+        if (!product) {
+          throw new Error('المنتج المحدد غير موجود');
+        }
+
+        const scaleFactor = (product.has_sub_unit && product.pieces_per_box > 0) ? product.pieces_per_box : 1;
+        const dbInputQty = Math.round((data.quantity / scaleFactor) * 10000) / 10000;
+
         // 1. If linked to a purchase invoice item for return, validate batch and remaining quantity
         let actualCostPrice = data.purchase_price || 0;
-        if (inputQty < 0 && data.purchase_invoice_item_id) {
-          const item: any = raw.prepare('SELECT quantity_remaining, unit_price FROM purchase_invoice_items WHERE id = ?').get(data.purchase_invoice_item_id);
+        let returnQtyNeeded = 0;
+        let isItemUnitBox = false;
+        if (dbInputQty < 0 && data.purchase_invoice_item_id) {
+          const item: any = raw.prepare('SELECT quantity_remaining, unit, unit_price FROM purchase_invoice_items WHERE id = ?').get(data.purchase_invoice_item_id);
           if (!item) {
             throw new Error('بند فاتورة الشراء المحدد غير موجود');
           }
-          const absQty = Math.abs(inputQty);
+          isItemUnitBox = item.unit === 'علبة';
+          returnQtyNeeded = isItemUnitBox ? Math.abs(dbInputQty) : Math.abs(data.quantity);
           const currentRem = item.quantity_remaining !== null ? item.quantity_remaining : 0;
-          if (currentRem < absQty) {
-            throw new Error(`الكمية المراد إرجاعها (${absQty}) أكبر من الكمية المتبقية في هذه الدفعة (${currentRem})`);
+          if (currentRem < returnQtyNeeded) {
+            throw new Error(`الكمية المراد إرجاعها (${returnQtyNeeded}) أكبر من الكمية المتبقية في هذه الدفعة (${currentRem})`);
           }
           
           // Deduct from purchase invoice item's remaining quantity
-          const nextRem = Math.round((currentRem - absQty) * 10000) / 10000;
+          const nextRem = Math.round((currentRem - returnQtyNeeded) * 10000) / 10000;
           raw.prepare('UPDATE purchase_invoice_items SET quantity_remaining = ? WHERE id = ?')
              .run(nextRem, data.purchase_invoice_item_id);
              
@@ -62,7 +73,7 @@ export function registerInventoryIPC() {
         // 2. Get current balance and check negative stock protection
         const balance: any = raw.prepare('SELECT quantity FROM stock_balances WHERE product_id = ? AND location_id = ?').get(data.product_id, data.location_id);
         const currentQty = balance ? balance.quantity : 0;
-        const newQty = Math.round((currentQty + inputQty) * 10000) / 10000;
+        const newQty = Math.round((currentQty + dbInputQty) * 10000) / 10000;
 
         if (newQty < 0) {
           throw new Error('فشلت العملية: كمية المخزون لا يمكن أن تصبح سالبة.');
@@ -85,33 +96,32 @@ export function registerInventoryIPC() {
         `).run(
           data.product_id,
           data.location_id,
-          inputQty < 0 && data.supplier_id ? 'purchase_return' : data.type,
-          inputQty,
+          dbInputQty < 0 && data.supplier_id ? 'purchase_return' : data.type,
+          dbInputQty,
           newQty,
           userId,
           data.notes || null
         );
         const moveId = moveRes.lastInsertRowid as number;
 
-        // 5. If quantity < 0 and supplier_id is provided, automatically record a return payment/debit adjustment and update WAC
-        if (inputQty < 0 && data.supplier_id) {
-          const costAmount = Math.round(Math.abs(inputQty) * actualCostPrice * 100) / 100;
+        // 5. If quantity < 0 and supplier_id is provided, record payment/debit adjustment and update WAC
+        if (dbInputQty < 0 && data.supplier_id) {
+          const costAmount = Math.round((data.purchase_invoice_item_id ? returnQtyNeeded * actualCostPrice : Math.abs(data.quantity) * actualCostPrice) * 100) / 100;
           if (costAmount > 0) {
             // Update supplier balance (decrease balance/debt)
             raw.prepare('UPDATE suppliers SET balance = balance - ? WHERE id = ?')
                .run(costAmount, data.supplier_id);
 
-            const product: any = raw.prepare('SELECT name, purchase_price FROM products WHERE id = ?').get(data.product_id);
-            const retNotes = `إرجاع بضاعة: ${product.name} (الكمية: ${Math.abs(inputQty)})` + (data.notes ? ` - ${data.notes}` : '');
+            const retNotes = `إرجاع بضاعة: ${product.name} (الكمية: ${Math.abs(data.quantity)})` + (data.notes ? ` - ${data.notes}` : '');
             
             // Recalculate WAC on product
             const currentWac = product ? (product.purchase_price || 0) : 0;
             const remainingQty = newQty;
             if (remainingQty > 0) {
-              const originalValue = currentQty * currentWac;
-              const returnedValue = Math.abs(inputQty) * actualCostPrice;
+              const originalValue = currentQty * currentWac * scaleFactor;
+              const returnedValue = data.purchase_invoice_item_id ? (returnQtyNeeded * actualCostPrice) : (Math.abs(data.quantity) * actualCostPrice);
               const newValue = Math.max(0, originalValue - returnedValue);
-              const nextWac = newValue / remainingQty;
+              const nextWac = newValue / (remainingQty * scaleFactor);
               
               raw.prepare('UPDATE products SET purchase_price = ?, updated_at = datetime(\'now\') WHERE id = ?')
                  .run(Math.round(nextWac * 100) / 100, data.product_id);
@@ -172,18 +182,26 @@ export function registerInventoryIPC() {
         AccountingEngine._checkClosingDate(raw, new Date().toISOString().split('T')[0]);
 
         // 0. Validate quantity
-        const inputQty = Math.round(data.quantity * 10000) / 10000;
-        if (!data.quantity || isNaN(data.quantity) || inputQty <= 0) {
+        if (!data.quantity || isNaN(data.quantity) || data.quantity <= 0) {
           throw new Error('فشلت العملية: الكمية التالفة يجب أن تكون قيمة موجبة أكبر من الصفر.');
         }
+
+        // Get product details
+        const product: any = raw.prepare('SELECT purchase_price, name, has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(data.product_id);
+        if (!product) {
+          throw new Error('المنتج المحدد غير موجود');
+        }
+
+        const scaleFactor = (product.has_sub_unit && product.pieces_per_box > 0) ? product.pieces_per_box : 1;
+        const dbInputQty = Math.round((data.quantity / scaleFactor) * 10000) / 10000;
 
         // 1. Check stock
         const balance: any = raw.prepare('SELECT quantity FROM stock_balances WHERE product_id = ? AND location_id = ?').get(data.product_id, data.location_id);
         const currentQty = balance ? balance.quantity : 0;
-        if (currentQty < inputQty) {
+        if (currentQty < dbInputQty) {
           throw new Error('الكمية المتوفرة في المخزون أقل من الكمية المحددة كـ تالف');
         }
-        const newQty = Math.round((currentQty - inputQty) * 10000) / 10000;
+        const newQty = Math.round((currentQty - dbInputQty) * 10000) / 10000;
 
         // 2. Update balance
         raw.prepare('UPDATE stock_balances SET quantity = ?, updated_at = datetime(\'now\') WHERE product_id = ? AND location_id = ?')
@@ -194,31 +212,30 @@ export function registerInventoryIPC() {
           INSERT INTO stock_movements (
             product_id, location_id, movement_type, quantity, balance_after, user_id, notes, created_at
           ) VALUES (?, ?, 'damage', ?, ?, ?, ?, datetime('now'))
-        `).run(data.product_id, data.location_id, -inputQty, newQty, userId, data.notes || null);
+        `).run(data.product_id, data.location_id, -dbInputQty, newQty, userId, data.notes || null);
         
         const moveId = moveRes.lastInsertRowid as number;
 
         // 4. Calculate cost to record an expense (with fallback to latest purchase invoice item price if WAC is 0)
-        const product: any = raw.prepare('SELECT purchase_price, name FROM products WHERE id = ?').get(data.product_id);
         let purchasePrice = product ? (product.purchase_price || 0) : 0;
         
         if (purchasePrice <= 0) {
           const lastPurchase: any = raw.prepare(`
-            SELECT unit_price FROM purchase_invoice_items pii
+            SELECT unit_price, unit FROM purchase_invoice_items pii
             JOIN purchase_invoices pi ON pii.invoice_id = pi.id
             WHERE pii.product_id = ? AND pi.status = 'confirmed'
             ORDER BY pi.date DESC, pi.id DESC LIMIT 1
           `).get(data.product_id);
           if (lastPurchase) {
-            purchasePrice = lastPurchase.unit_price;
+            purchasePrice = lastPurchase.unit === 'علبة' ? lastPurchase.unit_price / scaleFactor : lastPurchase.unit_price;
           }
         }
 
-        const costAmount = Math.round(purchasePrice * inputQty * 100) / 100;
+        const costAmount = Math.round(purchasePrice * data.quantity * 100) / 100;
 
         if (costAmount > 0) {
           const expenseNumber = 'EXP-DMG-' + Date.now();
-          const expenseDesc = `تسجيل تالف: ${product.name} (الكمية: ${inputQty})${data.notes ? ' - ' + data.notes : ''}`;
+          const expenseDesc = `تسجيل تالف: ${product.name} (الكمية: ${data.quantity})${data.notes ? ' - ' + data.notes : ''}`;
           
           // إدخل المصروف في جدول المصروفات للتوثيق
           const expRes = raw.prepare(`

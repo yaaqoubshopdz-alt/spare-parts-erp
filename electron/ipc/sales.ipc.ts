@@ -9,6 +9,11 @@ import { DatabaseService } from '../services/database.service';
 import { AccountingEngine } from '../services/accounting.service';
 import { AuthService } from '../services/auth.service';
 
+function getLocalDateString() {
+  const tzOffset = new Date().getTimezoneOffset() * 60000;
+  return new Date(Date.now() - tzOffset).toISOString().split('T')[0];
+}
+
 export function registerSalesIPC() {
   const db = () => DatabaseService.getRawDb();
   
@@ -151,6 +156,7 @@ export function registerSalesIPC() {
         let invoiceNumber: string;
         let isNew = false;
         let needsFirstTimeEffects = false;
+        let shouldUpdateDateTime = false;
 
         // Customer Credit Limit Validation
         if (data.customer_id && data.status === 'confirmed') {
@@ -190,6 +196,9 @@ export function registerSalesIPC() {
             }
           } else if (data.status === 'confirmed') {
             needsFirstTimeEffects = true;
+            if (!data.custom_date) {
+              shouldUpdateDateTime = true;
+            }
           }
         } else {
           // CREATE: منطق الإنشاء المعتاد
@@ -197,7 +206,7 @@ export function registerSalesIPC() {
           const customDateVal = data.custom_date || null;
           const ins = raw.prepare(`
             INSERT INTO sales_invoices (invoice_number, session_id, customer_id, sale_type, date, time, subtotal, tax_amount, global_discount_amount, total, paid, remaining, status, notes, user_id)
-            VALUES (?, ?, ?, ?, COALESCE(?, date('now')), time('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, COALESCE(?, date('now', 'localtime')), time('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(invoiceNumber, data.session_id || null, data.customer_id || null, data.sale_type, customDateVal, data.subtotal, data.tax_amount, data.global_discount_amount, data.total, data.paid, data.total - data.paid, data.status || 'draft', data.notes || null, userId);
           invoiceId = ins.lastInsertRowid as number;
           isNew = true;
@@ -205,15 +214,34 @@ export function registerSalesIPC() {
         }
 
         // 3. تحديث Header وتخزين العناصر
-        updateInvoiceHeader(raw, invoiceId, data);
+        updateInvoiceHeader(raw, invoiceId, data, shouldUpdateDateTime);
         raw.prepare('DELETE FROM sales_invoice_items WHERE invoice_id = ?').run(invoiceId);
         
         const insertItem = raw.prepare(`
-          INSERT INTO sales_invoice_items (invoice_id, product_id, product_name_snapshot, quantity, unit, unit_price, total)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO sales_invoice_items (
+            invoice_id, product_id, product_name_snapshot, product_barcode_snapshot,
+            quantity, unit, unit_price, cost_price_snapshot,
+            item_discount_type, item_discount_value, item_discount_amount,
+            total, sort_order
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const item of data.items) {
-          insertItem.run(invoiceId, item.product_id, item.product_name_snapshot, item.quantity, item.unit, item.unit_price, item.total);
+          insertItem.run(
+            invoiceId,
+            item.product_id,
+            item.product_name_snapshot || 'Unknown',
+            item.product_barcode_snapshot || null,
+            item.quantity,
+            item.unit || null,
+            item.unit_price,
+            item.cost_price_snapshot || 0,
+            item.item_discount_type || 'percent',
+            item.item_discount_value || 0,
+            item.item_discount_amount || 0,
+            item.total,
+            item.sort_order || 0
+          );
         }
 
         // 4. تطبيق تأثيرات المخزون والمحاسبة للفواتير الجديدة أو المؤكدة أول مرة
@@ -250,16 +278,13 @@ export function registerSalesIPC() {
         const prod: any = raw.prepare('SELECT name, has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(newItem.product_id);
         
         let newQty = newItem.quantity;
-        if (prod?.has_sub_unit && newItem.unit === 'علبة') {
-          newQty = newItem.quantity * (prod.pieces_per_box || 1);
+        if (prod?.has_sub_unit) {
+          newQty = newItem.unit === 'علبة' ? newItem.quantity : (newItem.quantity / (prod.pieces_per_box || 1));
         }
 
         let oldQty = 0;
         if (oldItem) {
-          oldQty = oldItem.quantity;
-          if (prod?.has_sub_unit && oldItem.unit === 'علبة') {
-            oldQty = oldItem.quantity * (prod.pieces_per_box || 1);
-          }
+          oldQty = oldItem.unit === 'علبة' ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
         }
 
         const delta = newQty - oldQty;
@@ -273,7 +298,7 @@ export function registerSalesIPC() {
       for (const [productId, entry] of netChangeMap.entries()) {
         const stockRow = raw.prepare('SELECT quantity FROM stock_balances WHERE product_id = ? AND location_id = 1').get(productId) as { quantity: number } | undefined;
         const currentQty = stockRow?.quantity || 0;
-        if (currentQty < entry.change) {
+        if (entry.change > 0 && currentQty < entry.change) {
           throw new Error(`الكمية غير كافية في المستودع للمنتج: ${entry.name}. المتوفر: ${currentQty}، المطلوب إضافته: ${entry.change}`);
         }
       }
@@ -284,15 +309,12 @@ export function registerSalesIPC() {
       
       const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(newItem.product_id);
       let newQty = newItem.quantity;
-      if (prod?.has_sub_unit && newItem.unit === 'علبة') {
-        newQty = newItem.quantity * (prod.pieces_per_box || 1);
+      if (prod?.has_sub_unit) {
+        newQty = newItem.unit === 'علبة' ? newItem.quantity : (newItem.quantity / (prod.pieces_per_box || 1));
       }
 
       if (oldItem) {
-        let oldQty = oldItem.quantity;
-        if (prod?.has_sub_unit && oldItem.unit === 'علبة') {
-          oldQty = oldItem.quantity * (prod.pieces_per_box || 1);
-        }
+        let oldQty = oldItem.unit === 'علبة' ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
 
         // حالة: نفس المنتج -> Delta
         const delta = newQty - oldQty;
@@ -310,15 +332,15 @@ export function registerSalesIPC() {
       if (!newData.items.find((i: any) => i.product_id === oldItem.product_id)) {
         const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(oldItem.product_id);
         let oldQty = oldItem.quantity;
-        if (prod?.has_sub_unit && oldItem.unit === 'علبة') {
-          oldQty = oldItem.quantity * (prod.pieces_per_box || 1);
+        if (prod?.has_sub_unit) {
+          oldQty = oldItem.unit === 'علبة' ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
         }
         raw.prepare('UPDATE stock_balances SET quantity = quantity + ? WHERE product_id = ? AND location_id = 1').run(oldQty, oldItem.product_id);
       }
     }
 
     // عكس الدفعة القديمة من العميل والصندوق
-    if (oldInvoice.paid > 0) {
+    if (oldInvoice.paid !== 0) {
       raw.prepare('UPDATE cash_boxes SET current_balance = current_balance - ? WHERE id = 1').run(oldInvoice.paid);
       raw.prepare("DELETE FROM payments WHERE invoice_id = ? AND party_type = 'customer'").run(invoiceId);
     }
@@ -332,7 +354,7 @@ export function registerSalesIPC() {
     // تطبيق الدفعة الجديدة
     if (newData.paid > 0) {
       const cashBoxId = newData.cash_box_id || 1;
-      const paymentDate = newData.custom_date || new Date().toISOString().split('T')[0];
+      const paymentDate = newData.custom_date || getLocalDateString();
       raw.prepare(`INSERT INTO payments (payment_number, type, party_type, party_id, amount, direction, payment_method, date, invoice_id, user_id) VALUES (?, 'collection', 'customer', ?, ?, 'in', 'cash', ?, ?, ?)`).run(`REC-${Date.now()}`, newData.customer_id || 0, newData.paid, paymentDate, invoiceId, userId);
       raw.prepare('UPDATE cash_boxes SET current_balance = current_balance + ? WHERE id = ?').run(newData.paid, cashBoxId);
     }
@@ -343,15 +365,25 @@ export function registerSalesIPC() {
       raw.prepare('UPDATE customers SET balance = balance + ? WHERE id = ?').run(newDebt, newData.customer_id);
     }
 
+    const oldCogs = oldItems.reduce((sum, item) => sum + (item.quantity * (item.cost_price_snapshot || 0)), 0);
+    const newCogs = newData.items.reduce((sum: number, item: any) => sum + (item.quantity * (item.cost_price_snapshot || 0)), 0);
+
     // تحديث المحاسبة (Adjustment)
-    AccountingEngine.updateSaleEntry(raw, { oldTotal: oldInvoice.total, newTotal: newData.total, invoiceId, date: newData.custom_date || oldInvoice.date }, userId);
+    AccountingEngine.updateSaleEntry(raw, { 
+      oldTotal: oldInvoice.total, 
+      newTotal: newData.total, 
+      invoiceId, 
+      date: newData.custom_date || oldInvoice.date,
+      oldCogs,
+      newCogs
+    }, userId);
   }
 
   function reverseItemEffect(raw: any, item: any) {
     const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
     let qty = item.quantity;
-    if (prod?.has_sub_unit && item.unit === 'علبة') {
-      qty = item.quantity * (prod.pieces_per_box || 1);
+    if (prod?.has_sub_unit) {
+      qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
     }
     raw.prepare('UPDATE stock_balances SET quantity = quantity + ? WHERE product_id = ? AND location_id = 1').run(qty, item.product_id);
   }
@@ -359,8 +391,8 @@ export function registerSalesIPC() {
   function applyItemEffect(raw: any, item: any) {
     const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
     let qty = item.quantity;
-    if (prod?.has_sub_unit && item.unit === 'علبة') {
-      qty = item.quantity * (prod.pieces_per_box || 1);
+    if (prod?.has_sub_unit) {
+      qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
     }
     raw.prepare('UPDATE stock_balances SET quantity = quantity - ? WHERE product_id = ? AND location_id = 1').run(qty, item.product_id);
   }
@@ -392,14 +424,30 @@ export function registerSalesIPC() {
     return `${prefix}${String(nextSeq).padStart(3, '0')}`;
   }
 
-  function updateInvoiceHeader(raw: any, invoiceId: number, data: any) {
+  function updateInvoiceHeader(raw: any, invoiceId: number, data: any, shouldUpdateDateTime: boolean = false) {
     const customDateVal = data.custom_date || null;
-    raw.prepare(`
-      UPDATE sales_invoices SET 
-        customer_id = ?, sale_type = ?, subtotal = ?, tax_amount = ?, global_discount_amount = ?,
-        total = ?, paid = ?, remaining = ?, status = ?, notes = ?, date = COALESCE(?, date), updated_at = datetime('now')
-      WHERE id = ?
-    `).run(data.customer_id || null, data.sale_type, data.subtotal, data.tax_amount, data.global_discount_amount, data.total, data.paid, data.total - data.paid, data.status || 'draft', data.notes || null, customDateVal, invoiceId);
+    if (shouldUpdateDateTime) {
+      raw.prepare(`
+        UPDATE sales_invoices SET 
+          customer_id = ?, sale_type = ?, subtotal = ?, tax_amount = ?, global_discount_amount = ?,
+          total = ?, paid = ?, remaining = ?, status = ?, notes = ?, 
+          date = COALESCE(?, date('now', 'localtime')), 
+          time = time('now', 'localtime'),
+          updated_at = datetime('now')
+        WHERE id = ?
+      `).run(
+        data.customer_id || null, data.sale_type, data.subtotal, data.tax_amount, data.global_discount_amount, 
+        data.total, data.paid, data.total - data.paid, data.status || 'draft', data.notes || null, 
+        customDateVal, invoiceId
+      );
+    } else {
+      raw.prepare(`
+        UPDATE sales_invoices SET 
+          customer_id = ?, sale_type = ?, subtotal = ?, tax_amount = ?, global_discount_amount = ?,
+          total = ?, paid = ?, remaining = ?, status = ?, notes = ?, date = COALESCE(?, date), updated_at = datetime('now')
+        WHERE id = ?
+      `).run(data.customer_id || null, data.sale_type, data.subtotal, data.tax_amount, data.global_discount_amount, data.total, data.paid, data.total - data.paid, data.status || 'draft', data.notes || null, customDateVal, invoiceId);
+    }
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -412,19 +460,21 @@ export function registerSalesIPC() {
     for (const item of items as any[]) {
       const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
       let qty = item.quantity;
-      if (prod?.has_sub_unit && item.unit === 'علبة') qty = item.quantity * (prod.pieces_per_box || 1);
+      if (prod?.has_sub_unit) {
+        qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
+      }
       raw.prepare('UPDATE stock_balances SET quantity = quantity + ? WHERE product_id = ? AND location_id = 1').run(qty, item.product_id);
     }
 
     // عكس الصندوق
-    if (invoice.paid > 0) {
+    if (invoice.paid !== 0) {
       raw.prepare('UPDATE cash_boxes SET current_balance = current_balance - ? WHERE id = 1').run(invoice.paid);
       raw.prepare("DELETE FROM payments WHERE invoice_id = ? AND party_type = 'customer'").run(invoiceId);
     }
 
     // عكس دين الزبون
     const debt = invoice.total - invoice.paid;
-    if (debt > 0 && invoice.customer_id) {
+    if (debt !== 0 && invoice.customer_id) {
       raw.prepare('UPDATE customers SET balance = balance - ? WHERE id = ?').run(debt, invoice.customer_id);
     }
 
@@ -444,7 +494,9 @@ export function registerSalesIPC() {
       for (const item of data.items) {
         const prod: any = raw.prepare('SELECT name, has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
         let qty = item.quantity;
-        if (prod?.has_sub_unit && item.unit === 'علبة') qty = item.quantity * (prod.pieces_per_box || 1);
+        if (prod?.has_sub_unit) {
+          qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
+        }
         const entry = productQuantities.get(item.product_id) || { qty: 0, name: prod?.name || item.product_name_snapshot || 'Unknown' };
         entry.qty += qty;
         productQuantities.set(item.product_id, entry);
@@ -453,7 +505,7 @@ export function registerSalesIPC() {
       for (const [productId, entry] of productQuantities.entries()) {
         const stockRow = raw.prepare('SELECT quantity FROM stock_balances WHERE product_id = ? AND location_id = 1').get(productId) as { quantity: number } | undefined;
         const currentQty = stockRow?.quantity || 0;
-        if (currentQty < entry.qty) {
+        if (entry.qty > 0 && currentQty < entry.qty) {
           throw new Error(`الكمية غير كافية في المستودع للمنتج: ${entry.name}. المتوفر: ${currentQty}، المطلوب: ${entry.qty}`);
         }
       }
@@ -474,7 +526,9 @@ export function registerSalesIPC() {
     for (const item of data.items) {
       const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
       let qty = item.quantity;
-      if (prod?.has_sub_unit && item.unit === 'علبة') qty = item.quantity * (prod.pieces_per_box || 1);
+      if (prod?.has_sub_unit) {
+        qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
+      }
       
       const stock: any = raw.prepare('SELECT id FROM stock_balances WHERE product_id = ? AND location_id = 1').get(item.product_id);
       if (!stock) {
@@ -485,22 +539,24 @@ export function registerSalesIPC() {
     }
 
     // الصندوق
-    if (data.paid > 0) {
+    if (data.paid !== 0) {
       const cashBoxId = data.cash_box_id || 1;
-      const paymentDate = data.custom_date || new Date().toISOString().split('T')[0];
-      raw.prepare(`INSERT INTO payments (payment_number, type, party_type, party_id, amount, direction, payment_method, date, invoice_id, user_id) VALUES (?, 'collection', 'customer', ?, ?, 'in', 'cash', ?, ?, ?)`).run(`REC-${Date.now()}`, data.customer_id || 0, data.paid, paymentDate, invoiceId, userId);
+      const paymentDate = data.custom_date || getLocalDateString();
+      const direction = data.paid > 0 ? 'in' : 'out';
+      const absPaid = Math.abs(data.paid);
+      raw.prepare(`INSERT INTO payments (payment_number, type, party_type, party_id, amount, direction, payment_method, date, invoice_id, user_id) VALUES (?, 'collection', 'customer', ?, ?, ?, 'cash', ?, ?, ?)`).run(`REC-${Date.now()}`, data.customer_id || 0, absPaid, direction, paymentDate, invoiceId, userId);
       raw.prepare('UPDATE cash_boxes SET current_balance = current_balance + ? WHERE id = ?').run(data.paid, cashBoxId);
     }
 
     // دين الزبون
     const debt = Math.round((data.total - data.paid) * 100) / 100;
-    if (debt > 0 && data.customer_id) {
+    if (debt !== 0 && data.customer_id) {
       raw.prepare('UPDATE customers SET balance = balance + ? WHERE id = ?').run(debt, data.customer_id);
     }
 
     // قيد محاسبي
     const totalCogs = data.items.reduce((sum: number, item: any) => sum + (item.quantity * (item.cost_price_snapshot || 0)), 0);
-    const entryDate = data.custom_date || new Date().toISOString().split('T')[0];
+    const entryDate = data.custom_date || getLocalDateString();
     AccountingEngine.recordSale(raw, { id: invoiceId, invoice_number: invoiceNumber, date: entryDate, total: data.total, paid: data.paid, remaining: debt, cogs: totalCogs, customer_id: data.customer_id || null }, userId);
   }
 

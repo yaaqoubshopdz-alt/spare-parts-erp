@@ -33,6 +33,7 @@ interface Product {
   brand_name: string;
   purchase_price: number;
   retail_price: number;
+  wholesale_price: number;
   total_stock: number;
   min_stock_level: number;
   is_active: boolean;
@@ -222,32 +223,76 @@ export default function InventoryPage() {
       render: (p: Product) => <span className="text-text_muted">{p.category_name || '-'}</span>,
     },
     {
-      key: 'purchase_price',
-      label: 'سعر الشراء',
-      sortable: true,
-      align: 'center',
-      width: 130,
+      key: 'unit_name',
+      label: 'الوحدة',
+      width: 100,
       resizable: true,
       draggable: true,
-      render: (p: Product) => (
-        <span className="font-bold font-numbers text-warning_amber">
-          {p.purchase_price.toFixed(2)} د.ج
-        </span>
-      ),
+      render: (p: Product) => <span className="text-text_muted font-bold">{p.unit_name || 'حبة'}</span>,
     },
     {
-      key: 'retail_price',
-      label: 'سعر البيع',
-      sortable: true,
+      key: 'purchase_price_box',
+      label: 'سعر شراء العلبة',
       align: 'center',
       width: 130,
       resizable: true,
       draggable: true,
-      render: (p: Product) => (
-        <span className="font-bold font-numbers text-success_green">
-          {p.retail_price.toFixed(2)} د.ج
-        </span>
-      ),
+      render: (p: Product) => {
+        const price = p.has_sub_unit ? (p.purchase_price * p.pieces_per_box) : p.purchase_price;
+        return (
+          <span className="font-bold font-numbers text-warning_amber">
+            {price.toFixed(2)} د.ج
+          </span>
+        );
+      },
+    },
+    {
+      key: 'purchase_price_piece',
+      label: 'سعر شراء القطعة',
+      align: 'center',
+      width: 130,
+      resizable: true,
+      draggable: true,
+      render: (p: Product) => {
+        const price = p.has_sub_unit ? p.purchase_price : null;
+        return (
+          <span className="font-bold font-numbers text-warning_amber/80">
+            {price !== null ? `${price.toFixed(2)} د.ج` : '-'}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'retail_price_box',
+      label: 'سعر بيع العلبة',
+      align: 'center',
+      width: 130,
+      resizable: true,
+      draggable: true,
+      render: (p: Product) => {
+        const price = p.wholesale_price;
+        return (
+          <span className="font-bold font-numbers text-success_green">
+            {price.toFixed(2)} د.ج
+          </span>
+        );
+      },
+    },
+    {
+      key: 'retail_price_piece',
+      label: 'سعر بيع القطعة',
+      align: 'center',
+      width: 130,
+      resizable: true,
+      draggable: true,
+      render: (p: Product) => {
+        const price = p.retail_price;
+        return (
+          <span className="font-bold font-numbers text-success_green/80">
+            {price.toFixed(2)} د.ج
+          </span>
+        );
+      },
     },
     {
       key: 'total_stock',
@@ -258,19 +303,15 @@ export default function InventoryPage() {
       resizable: true,
       draggable: true,
       render: (p: Product) => {
-        const formatQty = (v: number) => parseFloat(Number(v).toFixed(3));
-        return p.has_sub_unit && p.pieces_per_box > 1 ? (
-          <div className="flex flex-col items-center gap-1">
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-background_primary border border-border_default text-text_primary">
-              {Math.floor(p.total_stock / p.pieces_per_box)} علبة
-              {p.total_stock % p.pieces_per_box > 0 && ` و ${formatQty(p.total_stock % p.pieces_per_box)} ${p.unit_name || 'حبة'}`}
-            </span>
-          </div>
-        ) : (
+        const formatQty = (v: number) => parseFloat(Number(v).toFixed(2));
+        const stock = p.total_stock || 0;
+        const totalUnits = (p.has_sub_unit && p.pieces_per_box) ? (stock * p.pieces_per_box) : stock;
+        
+        return (
           <span className={`px-2 py-1 rounded-lg font-numbers text-xs font-bold ${
             p.total_stock <= p.min_stock_level ? 'bg-danger_red/10 text-danger_red' : 'bg-primary_blue/10 text-primary_blue'
           }`}>
-            {formatQty(p.total_stock)}
+            {formatQty(totalUnits)} {p.unit_name || 'حبة'}
           </span>
         );
       },
@@ -287,14 +328,24 @@ export default function InventoryPage() {
           <button
             title="تسجيل تالف"
             className="p-1.5 text-text_muted hover:text-danger_red transition-colors rounded-lg hover:bg-danger_red/10"
-            onClick={(e) => { e.stopPropagation(); setDefectiveProduct({ id: p.id, name: p.name, current_stock: p.total_stock }); setIsDefectiveModalOpen(true); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              const currentStock = (p.has_sub_unit && p.pieces_per_box) ? (p.total_stock * p.pieces_per_box) : p.total_stock;
+              setDefectiveProduct({ id: p.id, name: p.name, current_stock: currentStock });
+              setIsDefectiveModalOpen(true);
+            }}
           >
             <AlertTriangle size={16} />
           </button>
           <button
             title="تسوية المخزون"
             className="p-1.5 text-text_muted hover:text-warning_amber transition-colors rounded-lg hover:bg-warning_amber/10"
-            onClick={(e) => { e.stopPropagation(); setAdjustProduct({ id: p.id, name: p.name, current_stock: p.total_stock }); setIsAdjustModalOpen(true); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              const currentStock = (p.has_sub_unit && p.pieces_per_box) ? (p.total_stock * p.pieces_per_box) : p.total_stock;
+              setAdjustProduct({ id: p.id, name: p.name, current_stock: currentStock });
+              setIsAdjustModalOpen(true);
+            }}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
           </button>
@@ -325,7 +376,7 @@ export default function InventoryPage() {
     reorder,
     reset,
     showAll,
-  } = useColumnManager<ERPColumn<Product>>('erp_columns_inventory_v1', DEFAULT_COLUMNS);
+  } = useColumnManager<ERPColumn<Product>>('erp_columns_inventory_v2', DEFAULT_COLUMNS);
 
   // ── Count mode full-screen ──
   if (isCounting) {

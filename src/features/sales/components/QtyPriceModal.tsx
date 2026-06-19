@@ -62,7 +62,10 @@ export default function QtyPriceModal({
   };
 
   const handleQtyKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' || e.key === 'ArrowDown') {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleConfirm();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();
       priceInputRef.current?.focus();
       priceInputRef.current?.select();
@@ -76,7 +79,7 @@ export default function QtyPriceModal({
     if (e.key === 'Enter') {
       e.preventDefault();
       handleConfirm();
-    } else if (e.key === 'ArrowUp') {
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();
       qtyInputRef.current?.focus();
       qtyInputRef.current?.select();

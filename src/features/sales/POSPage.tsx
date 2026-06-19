@@ -31,6 +31,7 @@ import ProInvoiceLayout from '../../shared/components/layout/ProInvoiceLayout';
 import { useShortcutStore } from '../../store/shortcutStore';
 import { useSmoothScroll } from '../../shared/hooks/useSmoothScroll';
 import ProductPhotoViewerModal from '../inventory/ProductPhotoViewerModal';
+import QtyPriceModal from './components/QtyPriceModal';
 
 type SaleType = 'retail' | 'wholesale';
 type DiscountType = 'percent' | 'amount';
@@ -85,6 +86,12 @@ const ALL_SALE_TYPES: { value: SaleType; label: string; priceField: string }[] =
   { value: 'retail', label: 'تجزئة (قطعة)', priceField: 'retail_price' },
   { value: 'wholesale', label: 'جملة (علبة)', priceField: 'wholesale_price' },
 ];
+
+const formatStock = (stock: number, hasSubUnit?: boolean, piecesPerBox?: number, unitName?: string) => {
+  const qty = (hasSubUnit && piecesPerBox) ? (stock * piecesPerBox) : stock;
+  const rounded = parseFloat(Number(qty).toFixed(3));
+  return `${rounded} ${unitName || 'حبة'}`.trim();
+};
 
 export default function SalesInvoicePage() {
   const { t } = useTranslation();
@@ -377,9 +384,29 @@ export default function SalesInvoicePage() {
 
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
 
+  // Qty/Price Modal States
+  const [qtyPriceModalProduct, setQtyPriceModalProduct] = useState<any | null>(null);
+  const [posShowQtyPriceModal, setPosShowQtyPriceModal] = useState(false);
+
   useEffect(() => {
     localStorage.setItem('invoice_columns_layout_v2', JSON.stringify(columns));
   }, [columns]);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const api = window.electronAPI;
+        if (!api) return;
+        const res = await api.invoke('db:settings:getAll');
+        if (res?.success && res.data) {
+          setPosShowQtyPriceModal(res.data.pos_show_qty_price_modal === true || res.data.pos_show_qty_price_modal === 'true');
+        }
+      } catch (e) {
+        console.error('Error fetching POS settings:', e);
+      }
+    };
+    fetchSettings();
+  }, []);
 
 
 
@@ -507,6 +534,28 @@ export default function SalesInvoicePage() {
     }
   }, [searchParams, currentInvoiceId, handleOpenInvoice]);
 
+  // Restore invoice status and state on mount if currentInvoiceId is present
+  useEffect(() => {
+    const syncInvoiceStatus = async () => {
+      if (currentInvoiceId && invoiceStatus === null) {
+        try {
+          const res: any = await window.electronAPI?.invoke('db:sales:getById', currentInvoiceId);
+          if (res?.success && res.data) {
+            setInvoiceStatus(res.data.status);
+            isSavedRef.current = true;
+          } else {
+            // Invoice not found (maybe deleted), clear workspace
+            resetInvoice(true);
+          }
+        } catch (e) {
+          console.error('Failed to sync invoice status:', e);
+        }
+      }
+    };
+    syncInvoiceStatus();
+  }, [currentInvoiceId, invoiceStatus]);
+
+
   // Product search with debounce
   useEffect(() => {
     if (productSearch.length < 1) { setProductResults([]); setShowProductDropdown(false); return; }
@@ -531,8 +580,59 @@ export default function SalesInvoicePage() {
     return () => clearTimeout(timer);
   }, [customerSearch]);
 
+  const confirmAddProductWithQtyPrice = useCallback((qty: number, price: number) => {
+    if (!qtyPriceModalProduct) return;
+    const product = qtyPriceModalProduct;
+    // Record usage
+    if (window.electronAPI && productSearch.trim()) {
+      window.electronAPI.invoke('db:products:recordUsage', { query: productSearch, productId: product.id })
+        .catch(err => console.error('Error recording usage:', err));
+    }
+
+    const existing = items.find(i => i.product_id === product.id);
+    if (existing) {
+      setItems(prev => prev.map(i =>
+        i.product_id === product.id
+          ? { ...i, quantity: qty, unit_price: price, total: calcItemTotal(price, qty, i.item_discount_amount) }
+          : i
+      ));
+    } else {
+      const newItem: InvoiceItem = {
+        id: `item-${Date.now()}`,
+        product_id: product.id,
+        product_name_snapshot: product.name,
+        product_barcode_snapshot: product.barcode,
+        quantity: qty,
+        unit: product.unit_name || 'حبة',
+        unit_price: price,
+        purchase_price_snapshot: product.purchase_price || 0,
+        item_discount_type: 'percent',
+        item_discount_value: 0,
+        item_discount_amount: 0,
+        total: calcItemTotal(price, qty, 0),
+        stock_available: product.total_stock ?? product.quantity ?? 0,
+        sort_order: items.length,
+        retail_price_snapshot: product.retail_price || 0,
+        wholesale_price_snapshot: product.wholesale_price || 0,
+        has_sub_unit: product.has_sub_unit ? true : false,
+        pieces_per_box: product.pieces_per_box || 1,
+        unit_name: product.unit_name || 'حبة',
+      };
+      setItems(prev => [...prev, newItem]);
+    }
+    setProductSearch('');
+    setShowProductDropdown(false);
+    setQtyPriceModalProduct(null);
+    productSearchRef.current?.focus();
+  }, [qtyPriceModalProduct, items, productSearch, setItems]);
+
   // Add product to invoice with branch pricing rules
   const addProduct = useCallback((product: any) => {
+    if (posShowQtyPriceModal) {
+      setQtyPriceModalProduct(product);
+      return;
+    }
+
     // Record usage
     if (window.electronAPI && productSearch.trim()) {
       window.electronAPI.invoke('db:products:recordUsage', { query: productSearch, productId: product.id })
@@ -574,7 +674,7 @@ export default function SalesInvoicePage() {
     setProductSearch('');
     setShowProductDropdown(false);
     productSearchRef.current?.focus();
-  }, [items, productSearch]);
+  }, [items, productSearch, posShowQtyPriceModal]);
 
   const updateItem = (id: string, field: string, value: any) => {
     setItems(prev => prev.map(item => {
@@ -727,7 +827,9 @@ export default function SalesInvoicePage() {
               quantity: item.quantity,
               unit: item.unit,
               unit_price: item.unit_price,
-              cost_price_snapshot: item.purchase_price_snapshot || 0,
+              cost_price_snapshot: (item.has_sub_unit && item.unit !== 'علبة')
+                ? (item.purchase_price_snapshot || 0) / (item.pieces_per_box || 1)
+                : (item.purchase_price_snapshot || 0),
               item_discount_type: item.item_discount_type,
               item_discount_value: item.item_discount_value,
               item_discount_amount: item.item_discount_amount,
@@ -813,7 +915,9 @@ export default function SalesInvoicePage() {
           quantity: item.quantity,
           unit: item.unit,
           unit_price: item.unit_price,
-          cost_price_snapshot: item.purchase_price_snapshot || 0,
+          cost_price_snapshot: (item.has_sub_unit && item.unit !== 'علبة')
+            ? (item.purchase_price_snapshot || 0) / (item.pieces_per_box || 1)
+            : (item.purchase_price_snapshot || 0),
           item_discount_type: item.item_discount_type,
           item_discount_value: item.item_discount_value,
           item_discount_amount: item.item_discount_amount,
@@ -1160,10 +1264,9 @@ export default function SalesInvoicePage() {
                         )}
                       </div>
 
-                      {/* Column 3: Stock */}
                       <div className="w-[90px] px-2 border-l border-white/[0.08] flex justify-center">
                         <span className={`text-[13px] font-bold font-numbers ${p.total_stock <= 0 ? 'text-danger_red' : 'text-success_green'}`}>
-                          {parseFloat(Number(p.total_stock).toFixed(3)) || 0}
+                          {formatStock(p.total_stock, p.has_sub_unit, p.pieces_per_box, p.unit_name)}
                         </span>
                       </div>
 
@@ -1424,18 +1527,38 @@ export default function SalesInvoicePage() {
                       </select>
                     </div>
                   );
-                case 'stock':
+                case 'stock': {
+                  const qtyInBoxes = (item.has_sub_unit && item.unit !== 'علبة') ? (item.quantity / (item.pieces_per_box || 1)) : item.quantity;
                   return (
                     <div key={col.id} style={cellStyle} className={commonClasses}>
-                      <span className={`text-[11px] font-bold font-numbers ${item.stock_available <= item.quantity ? 'text-danger_red/70' : 'text-text_primary'}`}>
-                        {parseFloat(Number(item.stock_available).toFixed(3))}
+                      <span className={`text-[11px] font-bold font-numbers ${item.stock_available <= qtyInBoxes ? 'text-danger_red/70' : 'text-text_primary'}`}>
+                        {formatStock(item.stock_available, item.has_sub_unit, item.pieces_per_box, item.unit_name || item.unit)}
                       </span>
                     </div>
                   );
+                }
                 case 'quantity':
                   return (
                     <div key={col.id} style={cellStyle} className={commonClasses}>
-                      <input type="number" min={0.01} step={1} value={item.quantity} onChange={e => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                      <input type="number" step="any" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                        id={`pos-qty-input-${idx}`}
+                        onKeyDown={(e) => {
+                          if (e.key === 'ArrowDown' || e.key === 'Enter') {
+                            e.preventDefault();
+                            const nextInput = document.getElementById(`pos-qty-input-${idx + 1}`) as HTMLInputElement | null;
+                            if (nextInput) {
+                              nextInput.focus();
+                              nextInput.select();
+                            }
+                          } else if (e.key === 'ArrowUp') {
+                            e.preventDefault();
+                            const prevInput = document.getElementById(`pos-qty-input-${idx - 1}`) as HTMLInputElement | null;
+                            if (prevInput) {
+                              prevInput.focus();
+                              prevInput.select();
+                            }
+                          }
+                        }}
                         className="w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-text_primary focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none transition-all" />
                     </div>
                   );
@@ -1760,6 +1883,23 @@ export default function SalesInvoicePage() {
           }}
         />
       )}
+
+      <QtyPriceModal
+        isOpen={qtyPriceModalProduct !== null}
+        productName={qtyPriceModalProduct?.name || ''}
+        stockAvailable={qtyPriceModalProduct?.total_stock ?? qtyPriceModalProduct?.quantity ?? 0}
+        unitName={qtyPriceModalProduct?.unit_name || 'حبة'}
+        initialQty={qtyPriceModalProduct ? (() => {
+          const existing = items.find(i => i.product_id === qtyPriceModalProduct.id);
+          return existing ? existing.quantity + 1 : 1;
+        })() : 1}
+        initialPrice={qtyPriceModalProduct ? (() => {
+          const existing = items.find(i => i.product_id === qtyPriceModalProduct.id);
+          return existing ? existing.unit_price : (qtyPriceModalProduct.retail_price || 0);
+        })() : 0}
+        onClose={() => setQtyPriceModalProduct(null)}
+        onConfirm={confirmAddProductWithQtyPrice}
+      />
 
     </div>
   );

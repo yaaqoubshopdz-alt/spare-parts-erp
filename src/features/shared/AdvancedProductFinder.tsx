@@ -9,6 +9,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, X, Car, Filter, Globe, Plus, Package, ChevronDown, ChevronUp, Layers } from 'lucide-react';
 import FitmentsBadges from './FitmentsBadges';
 
+const formatStock = (stock: number, hasSubUnit?: boolean, piecesPerBox?: number, unitName?: string) => {
+  const qty = (hasSubUnit && piecesPerBox) ? (stock * piecesPerBox) : stock;
+  const rounded = parseFloat(Number(qty).toFixed(3));
+  return `${rounded} ${unitName || 'حبة'}`.trim();
+};
+
 interface AdvancedProductFinderProps {
   isOpen: boolean;
   onClose: () => void;
@@ -299,7 +305,7 @@ export default function AdvancedProductFinder({ isOpen, onClose, onSelectProduct
                     </div>
                     <div className="w-[80px] text-center border-r border-white/[0.06] dark:border-white/[0.03] px-2">
                       <span className={`text-[13px] font-bold font-numbers ${p.total_stock > 0 ? 'text-success_green' : 'text-danger_red'}`}>
-                        {p.total_stock}
+                        {formatStock(p.total_stock, p.has_sub_unit, p.pieces_per_box, p.unit_name)}
                       </span>
                     </div>
                     <div className="w-[100px] text-center border-r border-white/[0.06] dark:border-white/[0.03] px-2">

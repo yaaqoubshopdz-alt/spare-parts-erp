@@ -51,6 +51,7 @@ interface PurchaseItem {
   pieces_per_box?: number;
   compatibility_suggestions?: any[];
   product_is_active?: number;
+  unit_name?: string;
 }
 
 interface ColumnDef {
@@ -70,11 +71,12 @@ const INITIAL_COLUMNS: ColumnDef[] = [
   { id: 'name', label: 'التسمية', width: 280, align: 'right', sortable: true, sortKey: 'product_name_snapshot', flex: true },
   { id: 'category', label: 'التصنيف', width: 110, align: 'center', sortable: true, sortKey: 'category_id' },
   { id: 'unit', label: 'الوحدة', width: 90, align: 'center', sortable: true, sortKey: 'unit' },
-  { id: 'purchase_price', label: 'سعر الشراء', width: 110, align: 'center', sortable: true, sortKey: 'unit_price' },
+  { id: 'purchase_price_box', label: 'سعر شراء العلبة', width: 115, align: 'center' },
+  { id: 'purchase_price_piece', label: 'سعر شراء القطعة', width: 115, align: 'center' },
   { id: 'retail_margin', label: 'نسبة الربح (%)', width: 100, align: 'center', sortable: true, sortKey: 'retail_margin' },
   { id: 'wholesale_price', label: 'سعر بيع العلبة', width: 110, align: 'center', sortable: true, sortKey: 'wholesale_price' },
   { id: 'retail_price', label: 'سعر بيع القطعة', width: 110, align: 'center', sortable: true, sortKey: 'retail_price' },
-  { id: 'quantity', label: 'الكمية', width: 100, align: 'center', sortable: true, sortKey: 'quantity' },
+  { id: 'quantity', label: 'الكمية المضافة', width: 100, align: 'center', sortable: true, sortKey: 'quantity' },
   { id: 'total', label: 'المبلغ الإجمالي', width: 130, align: 'center', sortable: true, sortKey: 'total' },
   { id: 'inventory_check', label: 'جرد', width: 80, align: 'center' },
   { id: 'actions', label: 'تعديل', width: 80, align: 'center' }
@@ -135,7 +137,7 @@ export default function PurchaseFormPage() {
   const supplierDropdownScrollRef = useSmoothScroll<HTMLDivElement>();
 
   const [columns, setColumns] = useState<ColumnDef[]>(() => {
-    const savedStr = localStorage.getItem('purchase_invoice_columns_layout_v8');
+    const savedStr = localStorage.getItem('purchase_invoice_columns_layout_v9');
     if (!savedStr) return INITIAL_COLUMNS;
     try {
       const saved = JSON.parse(savedStr) as ColumnDef[];
@@ -189,7 +191,7 @@ export default function PurchaseFormPage() {
   const supplierSearchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    localStorage.setItem('purchase_invoice_columns_layout_v8', JSON.stringify(columns)); // إصدار v8
+    localStorage.setItem('purchase_invoice_columns_layout_v9', JSON.stringify(columns)); // إصدار v9
   }, [columns]);
 
   useEffect(() => {
@@ -535,6 +537,10 @@ export default function PurchaseFormPage() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
 
   // ── Smart AI Import States ──
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
+
+  const isReadOnly = invoiceStatus === 'confirmed' || invoiceStatus === 'cancelled';
+
   const [showSmartImportModal, setShowSmartImportModal] = useState(false);
   const [importJsonText, setImportJsonText] = useState('');
   const [isReconciling, setIsReconciling] = useState(false);
@@ -664,6 +670,25 @@ export default function PurchaseFormPage() {
           const item = sortedItems[focusedRowIndex];
           if (item) {
             setEditingProductId(item.product_id);
+            setEditingItemId(item.id);
+          }
+        }
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (focusedRowIndex >= 0 && focusedRowIndex < items.length) {
+          const item = sortedItems[focusedRowIndex];
+          if (item) {
+            setEditingProductId(item.product_id);
+            setEditingItemId(item.id);
+          }
+        }
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (focusedRowIndex >= 0 && focusedRowIndex < items.length) {
+          const item = sortedItems[focusedRowIndex];
+          if (item) {
+            updateItem(item.id, 'inventory_check', true);
+            setFocusedRowIndex(prev => Math.min(prev + 1, items.length - 1));
           }
         }
       }
@@ -733,18 +758,48 @@ export default function PurchaseFormPage() {
         handleOpenInvoice(numericId);
       }
     } else {
-      setItems([]); 
-      setSupplierId(null); 
-      setSupplierName('مورد عام');
-      setSupplierBalance(0);
-      setInvoiceNumber(`ACH-${Date.now().toString().slice(-8)}`);
-      setCurrentInvoiceId(null);
-      setInvoiceStatus(null);
-      setPaidAmount(0); 
-      setNotes(''); 
-      setPaymentMethod('cash');
-      setIsCancelled(false);
-      setCustomDate(null);
+      // Load draft from localStorage if it exists, otherwise clear
+      try {
+        const savedItems = localStorage.getItem('purchase_form_draft_items');
+        const savedInvoiceId = localStorage.getItem('purchase_form_draft_invoice_id');
+        const savedInvoiceNumber = localStorage.getItem('purchase_form_draft_invoice_number');
+        const savedSupplierId = localStorage.getItem('purchase_form_draft_supplier_id');
+        const savedSupplierName = localStorage.getItem('purchase_form_draft_supplier_name');
+        const savedSupplierBalance = localStorage.getItem('purchase_form_draft_supplier_balance');
+        const savedPaidAmount = localStorage.getItem('purchase_form_draft_paid_amount');
+        const savedNotes = localStorage.getItem('purchase_form_draft_notes');
+        const savedPaymentMethod = localStorage.getItem('purchase_form_draft_payment_method');
+        const savedCustomDate = localStorage.getItem('purchase_form_draft_custom_date');
+        const savedInvoiceStatus = localStorage.getItem('purchase_form_draft_invoice_status');
+
+        setItems(savedItems ? JSON.parse(savedItems) : []);
+        setCurrentInvoiceId(savedInvoiceId ? JSON.parse(savedInvoiceId) : null);
+        setInvoiceNumber(savedInvoiceNumber || `ACH-${Date.now().toString().slice(-8)}`);
+        setSupplierId(savedSupplierId ? JSON.parse(savedSupplierId) : null);
+        setSupplierName(savedSupplierName || 'مورد عام');
+        setSupplierBalance(savedSupplierBalance ? JSON.parse(savedSupplierBalance) : 0);
+        setPaidAmount(savedPaidAmount ? JSON.parse(savedPaidAmount) : 0);
+        setNotes(savedNotes || '');
+        setPaymentMethod((savedPaymentMethod as any) || 'cash');
+        setIsCancelled(savedInvoiceStatus ? JSON.parse(savedInvoiceStatus) === 'cancelled' : false);
+        setInvoiceStatus(savedInvoiceStatus ? JSON.parse(savedInvoiceStatus) : null);
+        setCustomDate(savedCustomDate || null);
+      } catch (err) {
+        console.error('Error loading draft on mount:', err);
+        // Fallback to empty if parse fails
+        setItems([]); 
+        setSupplierId(null); 
+        setSupplierName('مورد عام');
+        setSupplierBalance(0);
+        setInvoiceNumber(`ACH-${Date.now().toString().slice(-8)}`);
+        setCurrentInvoiceId(null);
+        setInvoiceStatus(null);
+        setPaidAmount(0); 
+        setNotes(''); 
+        setPaymentMethod('cash');
+        setIsCancelled(false);
+        setCustomDate(null);
+      }
     }
   }, [id]);
 
@@ -1173,6 +1228,13 @@ Strict Rules:
         .catch(err => console.error('Error recording usage:', err));
     }
 
+    const hasSubUnit = p.has_sub_unit === 1 || p.has_sub_unit === true || p.has_sub_unit === 'true' || p.has_sub_unit === '1';
+    const piecesPerBox = p.pieces_per_box || 1;
+    const unitName = p.unit_name || p.unit || 'قطعة';
+
+    const defaultUnit = hasSubUnit ? 'علبة' : unitName;
+    const defaultUnitPrice = hasSubUnit ? (p.purchase_price * piecesPerBox) : p.purchase_price;
+
     const existing = items.find(i => i.product_id === p.id);
     if (existing) {
       setItems(prev => prev.map(i => i.product_id === p.id ? { ...i, quantity: i.quantity + 1, total: roundTo2(i.unit_price * (i.quantity + 1)) } : i));
@@ -1184,16 +1246,19 @@ Strict Rules:
         product_barcode_snapshot: p.barcode || p.internal_code,
         product_name: p.name,
         product_name_fr: p.name_fr,
-        quantity: p.initial_stock || 1, 
-        unit: p.unit_name || p.unit || 'قطعة', 
-        unit_price: p.purchase_price || 0, 
-        total: roundTo2((p.purchase_price || 0) * (p.initial_stock || 1)),
+        quantity: 1, 
+        unit: defaultUnit, 
+        unit_price: defaultUnitPrice, 
+        total: roundTo2(defaultUnitPrice * 1),
         wholesale_price: p.wholesale_price || 0,
         retail_price: p.retail_price || 0,
         retail_margin: p.purchase_price > 0 && p.retail_price > 0 ? Math.round(((p.retail_price / p.purchase_price) - 1) * 100) : 30,
         category_id: p.category_id,
         unit_id: p.unit_id,
-        sort_order: prev.length + 1
+        sort_order: prev.length + 1,
+        has_sub_unit: hasSubUnit,
+        pieces_per_box: piecesPerBox,
+        unit_name: unitName
       }]);
     }
     setProductSearch(''); 
@@ -1238,15 +1303,50 @@ Strict Rules:
         u.total = roundTo2(Number(u.unit_price) * Number(u.quantity));
       }
       
+      const pieces = u.pieces_per_box || 1;
+      const piecePurchase = (u.has_sub_unit && u.unit === 'علبة') ? (Number(u.unit_price) / pieces) : Number(u.unit_price);
+      
       if (field === 'unit_price' && u.retail_margin) {
-         u.retail_price = Math.round(Number(u.unit_price) * (1 + Number(u.retail_margin) / 100));
+         u.retail_price = Math.round(piecePurchase * (1 + Number(u.retail_margin) / 100));
       } else if (field === 'retail_margin') {
-         u.retail_price = Math.round(Number(u.unit_price) * (1 + Number(value) / 100));
-      } else if (field === 'retail_price' && u.unit_price > 0) {
-         u.retail_margin = Math.round(((Number(value) / Number(u.unit_price)) - 1) * 100);
+         u.retail_price = Math.round(piecePurchase * (1 + Number(value) / 100));
+      } else if (field === 'retail_price' && piecePurchase > 0) {
+         u.retail_margin = Math.round(((Number(value) / piecePurchase) - 1) * 100);
       }
       
       return u;
+    }));
+  };
+
+  const updateItemUnit = (id: string, newUnit: string) => {
+    setItems(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      const pieces = item.pieces_per_box || 1;
+      let newPrice = item.unit_price;
+      let newQty = item.quantity;
+      
+      if (newUnit === 'علبة' && item.unit !== 'علبة') {
+        newPrice = item.unit_price * pieces;
+        newQty = item.quantity / pieces;
+      } else if (newUnit !== 'علبة' && item.unit === 'علبة') {
+        newPrice = item.unit_price / pieces;
+        newQty = item.quantity * pieces;
+      }
+      
+      const updated = { 
+        ...item, 
+        unit: newUnit, 
+        unit_price: newPrice,
+        quantity: Math.round(newQty * 10000) / 10000,
+        total: roundTo2(newPrice * newQty)
+      };
+
+      const piecePurchase = newUnit === 'علبة' ? (newPrice / pieces) : newPrice;
+      if (updated.retail_price > 0) {
+        updated.retail_margin = piecePurchase > 0 ? Math.round(((updated.retail_price / piecePurchase) - 1) * 100) : 30;
+      }
+      
+      return updated;
     }));
   };
 
@@ -1415,6 +1515,20 @@ Strict Rules:
     } catch { return false; }
   };
 
+  const clearDraft = () => {
+    localStorage.removeItem('purchase_form_draft_items');
+    localStorage.removeItem('purchase_form_draft_invoice_id');
+    localStorage.removeItem('purchase_form_draft_invoice_number');
+    localStorage.removeItem('purchase_form_draft_supplier_id');
+    localStorage.removeItem('purchase_form_draft_supplier_name');
+    localStorage.removeItem('purchase_form_draft_supplier_balance');
+    localStorage.removeItem('purchase_form_draft_payment_method');
+    localStorage.removeItem('purchase_form_draft_notes');
+    localStorage.removeItem('purchase_form_draft_paid_amount');
+    localStorage.removeItem('purchase_form_draft_custom_date');
+    localStorage.removeItem('purchase_form_draft_invoice_status');
+  };
+
   const resetInvoice = async (skipAutoPark: any = false) => {
     const shouldSkip = skipAutoPark === true;
     // Auto-park: save current unsaved invoice as draft before clearing
@@ -1425,6 +1539,9 @@ Strict Rules:
         showAutoParkToast('purchases', draftId);
       }
     }
+    
+    clearDraft();
+    
     if (id) {
       navigate('/purchases/new');
       return;
@@ -1968,10 +2085,10 @@ Strict Rules:
                 }}
                 dir="auto"
                 placeholder={supplierName ? `${supplierName} (${shortcuts.search_party})` : `اختر المورد... (${shortcuts.search_party})`}
-                disabled={currentInvoiceId !== null}
+                disabled={isReadOnly}
                 className="w-full bg-background_card border-2 border-border_default rounded-xl pr-10 pl-10 py-3 text-xl font-black text-text_primary placeholder:text-text_primary focus:border-primary_blue focus:bg-primary_blue/5 text-start transition-all outline-none"
               />
-              {supplierId && currentInvoiceId === null && (
+              {supplierId && !isReadOnly && (
                 <button onClick={() => { setSupplierId(null); setSupplierName('مورد عام'); setSupplierBalance(0); }} className="absolute left-2 top-1/2 -translate-y-1/2 text-text_muted hover:text-danger_red p-1">
                   <X size={12} />
                 </button>
@@ -2137,7 +2254,7 @@ Strict Rules:
                 if (col.id === 'category') return (
                   <div key={col.id} style={cellStyle} className={commonClasses}>
                     <select value={item.category_id || ''} onChange={e => updateItem(item.id, 'category_id', parseInt(e.target.value) || 0)}
-                      disabled={currentInvoiceId !== null || isJardMode}
+                      disabled={isReadOnly || isJardMode}
                       className="w-full bg-transparent border border-transparent hover:bg-background_card focus:border-border_default rounded px-0 py-0.5 text-[11px] text-center text-text_primary outline-none transition-all cursor-pointer">
                       <option value="" className="bg-background_card text-text_primary">-</option>
                       {categories.map(c => <option key={c.id} value={c.id} className="bg-background_card text-text_primary">{c.name}</option>)}
@@ -2146,26 +2263,89 @@ Strict Rules:
                 );
                 if (col.id === 'unit') return (
                   <div key={col.id} style={cellStyle} className={commonClasses}>
-                    <select value={item.unit_id || ''} onChange={e => updateItem(item.id, 'unit_id', parseInt(e.target.value) || 0)}
-                      disabled={currentInvoiceId !== null || isJardMode}
-                      className="w-full bg-transparent border border-transparent hover:bg-background_card focus:border-border_default rounded px-0 py-0.5 text-[11px] text-center text-text_primary outline-none transition-all cursor-pointer">
-                      <option value="" className="bg-background_card text-text_primary">-</option>
-                      {units.map(u => <option key={u.id} value={u.id} className="bg-background_card text-text_primary">{u.name}</option>)}
-                    </select>
+                    {item.has_sub_unit ? (
+                      <select 
+                        value={item.unit} 
+                        onChange={e => updateItemUnit(item.id, e.target.value)}
+                        disabled={isReadOnly || isJardMode}
+                        className="w-full bg-transparent border border-transparent hover:bg-background_card focus:border-border_default rounded px-0 py-0.5 text-[11px] text-center text-text_primary outline-none transition-all cursor-pointer font-bold"
+                      >
+                        <option value="علبة" className="bg-background_card text-text_primary">علبة</option>
+                        {item.unit_name && <option value={item.unit_name} className="bg-background_card text-text_primary">{item.unit_name}</option>}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-text_muted font-bold">
+                        {item.unit_name || 'حبة'}
+                      </span>
+                    )}
                   </div>
                 );
                 
-                if (col.id === 'purchase_price') return (
-                  <div key={col.id} style={cellStyle} className={commonClasses}>
-                    <input type="number" min={0} value={item.unit_price || ''} onChange={e => updateItem(item.id, 'unit_price', parseFloat(e.target.value) || 0)}
-                      readOnly={isJardMode}
-                      className="w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-text_primary focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none transition-all" />
-                  </div>
-                );
-                if (col.id === 'quantity') return (
+                if (col.id === 'purchase_price_box') {
+                  const isEditable = !isReadOnly && (!item.has_sub_unit || item.unit === 'علبة');
+                  const value = (item.has_sub_unit && item.unit !== 'علبة') 
+                    ? (item.unit_price * (item.pieces_per_box || 1)) 
+                    : item.unit_price;
+                  return (
+                    <div key={col.id} style={cellStyle} className={commonClasses}>
+                      {isEditable ? (
+                        <input type="number" min={0} value={value || ''} 
+                          onChange={e => updateItem(item.id, 'unit_price', parseFloat(e.target.value) || 0)}
+                          readOnly={isReadOnly || isJardMode}
+                          className="w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-text_primary focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none transition-all" />
+                      ) : (
+                        <span className="font-bold font-numbers text-text_muted">
+                          {value ? value.toFixed(2) : '0.00'}
+                        </span>
+                      )}
+                    </div>
+                  );
+                }
+                
+                if (col.id === 'purchase_price_piece') {
+                  const isEditable = !isReadOnly && (item.has_sub_unit && item.unit !== 'علبة');
+                  const value = item.has_sub_unit 
+                    ? (item.unit === 'علبة' ? (item.unit_price / (item.pieces_per_box || 1)) : item.unit_price) 
+                    : null;
+                  return (
+                    <div key={col.id} style={cellStyle} className={commonClasses}>
+                      {value === null ? (
+                        <span className="text-text_muted font-bold">-</span>
+                      ) : isEditable ? (
+                        <input type="number" min={0} value={value || ''} 
+                          onChange={e => updateItem(item.id, 'unit_price', parseFloat(e.target.value) || 0)}
+                          readOnly={isReadOnly || isJardMode}
+                          className="w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-text_primary focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none transition-all" />
+                      ) : (
+                        <span className="font-bold font-numbers text-text_muted">
+                          {value.toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                  );
+                }
+                 if (col.id === 'quantity') return (
                   <div key={col.id} style={cellStyle} className={commonClasses}>
                     <input type="number" min={0.01} step={1} value={item.quantity} onChange={e => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                      id={`purchase-qty-input-${index}`}
                       readOnly={isJardMode}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowDown' || e.key === 'Enter') {
+                          e.preventDefault();
+                          const nextEl = document.getElementById(`purchase-qty-input-${index + 1}`) as HTMLInputElement | null;
+                          if (nextEl) {
+                            nextEl.focus();
+                            nextEl.select();
+                          }
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          const prevEl = document.getElementById(`purchase-qty-input-${index - 1}`) as HTMLInputElement | null;
+                          if (prevEl) {
+                            prevEl.focus();
+                            prevEl.select();
+                          }
+                        }
+                      }}
                       className="w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] font-bold font-numbers text-center text-emerald-500 focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none transition-all" />
                   </div>
                 );
@@ -2173,9 +2353,9 @@ Strict Rules:
                 if (col.id === 'retail_margin') return (
                   <div key={col.id} style={cellStyle} className={commonClasses}>
                     <input type="number" min={0} step="any" value={item.retail_margin || ''} onChange={e => updateItem(item.id, 'retail_margin', parseFloat(e.target.value) || 0)}
-                      disabled={currentInvoiceId !== null}
+                      disabled={isReadOnly}
                       readOnly={isJardMode}
-                      className={`w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-yellow-500 transition-all ${currentInvoiceId === null && !isJardMode ? 'focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none' : 'border-transparent opacity-80'}`} />
+                      className={`w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-yellow-500 transition-all ${!isReadOnly && !isJardMode ? 'focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none' : 'border-transparent opacity-80'}`} />
                   </div>
                 );
                 
@@ -2184,17 +2364,17 @@ Strict Rules:
                 if (col.id === 'wholesale_price') return (
                   <div key={col.id} style={cellStyle} className={commonClasses}>
                     <input type="number" min={0} step="any" value={item.wholesale_price || ''} onChange={e => updateItem(item.id, 'wholesale_price', parseFloat(e.target.value) || 0)}
-                      disabled={currentInvoiceId !== null}
+                      disabled={isReadOnly}
                       readOnly={isJardMode}
-                      className={`w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-emerald-500 transition-all ${currentInvoiceId === null && !isJardMode ? 'focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none' : 'border-transparent opacity-80'}`} />
+                      className={`w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-emerald-500 transition-all ${!isReadOnly && !isJardMode ? 'focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none' : 'border-transparent opacity-80'}`} />
                   </div>
                 );
                 if (col.id === 'retail_price') return (
                   <div key={col.id} style={cellStyle} className={commonClasses}>
                     <input type="number" min={0} step="any" value={item.retail_price || ''} onChange={e => updateItem(item.id, 'retail_price', parseFloat(e.target.value) || 0)}
-                      disabled={currentInvoiceId !== null}
+                      disabled={isReadOnly}
                       readOnly={isJardMode}
-                      className={`w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-sky-500 transition-all ${currentInvoiceId === null && !isJardMode ? 'focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none' : 'border-transparent opacity-80'}`} />
+                      className={`w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-sky-500 transition-all ${!isReadOnly && !isJardMode ? 'focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none' : 'border-transparent opacity-80'}`} />
                   </div>
                 );
 
@@ -2209,7 +2389,10 @@ Strict Rules:
                           document.getElementById(`inv-check-${index + 1}`)?.focus();
                         }, 50);
                       }}
-                      disabled={currentInvoiceId !== null}
+                      disabled={isReadOnly}
+                      onFocus={() => {
+                        if (isJardMode) setFocusedRowIndex(index);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'ArrowDown') {
                           e.preventDefault();
@@ -2217,6 +2400,16 @@ Strict Rules:
                         } else if (e.key === 'ArrowUp') {
                           e.preventDefault();
                           document.getElementById(`inv-check-${index - 1}`)?.focus();
+                        } else if (e.key === 'ArrowLeft') {
+                          e.preventDefault();
+                          setEditingProductId(item.product_id);
+                          setEditingItemId(item.id);
+                        } else if (e.key === 'ArrowRight') {
+                          e.preventDefault();
+                          updateItem(item.id, 'inventory_check', true);
+                          setTimeout(() => {
+                            document.getElementById(`inv-check-${index + 1}`)?.focus();
+                          }, 50);
                         } else if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
                           updateItem(item.id, 'inventory_check', !item.inventory_check);
@@ -2580,7 +2773,6 @@ Strict Rules:
       <AddProductModal 
         isOpen={showAddModal} 
         onClose={() => setShowAddModal(false)} 
-        hideInitialStock={true}
         onSuccess={(p: any) => { 
           addProduct(p); 
         }} 
@@ -2633,14 +2825,21 @@ Strict Rules:
           }}
           productId={editingProductId}
           initialData={initialDataForEdit}
-          hideInitialStock={true}
           onSuccess={(updatedProduct: any) => {
             if (updatedProduct) {
               setItems(prev => prev.map(item => {
                 if (item.id === editingItemId || (item.product_id > 0 && item.product_id === updatedProduct.id)) {
-                  const purchasePrice = updatedProduct.purchase_price || 0;
+                  const hasSubUnit = updatedProduct.has_sub_unit || item.has_sub_unit;
+                  const piecesPerBox = updatedProduct.pieces_per_box || item.pieces_per_box || 1;
+                  const isItemBox = item.unit === 'علبة';
+                  
+                  let purchasePrice = updatedProduct.purchase_price || 0;
+                  if (hasSubUnit && isItemBox && piecesPerBox > 0) {
+                    purchasePrice = purchasePrice * piecesPerBox;
+                  }
+                  
                   const retailPrice = updatedProduct.retail_price || 0;
-                  const retailMargin = purchasePrice > 0 && retailPrice > 0 ? Math.round(((retailPrice / purchasePrice) - 1) * 100) : item.retail_margin;
+                  const retailMargin = updatedProduct.purchase_price > 0 && retailPrice > 0 ? Math.round(((retailPrice / updatedProduct.purchase_price) - 1) * 100) : item.retail_margin;
                   return {
                     ...item,
                     product_id: updatedProduct.id,
@@ -2653,6 +2852,9 @@ Strict Rules:
                     retail_margin: retailMargin,
                     category_id: updatedProduct.category_id || item.category_id,
                     unit_id: updatedProduct.unit_id || item.unit_id,
+                    has_sub_unit: hasSubUnit,
+                    pieces_per_box: piecesPerBox,
+                    unit_name: updatedProduct.unit_name || item.unit_name,
                     isNewProduct: false,
                     needs_review: false,
                     inventory_check: isJardMode ? true : item.inventory_check

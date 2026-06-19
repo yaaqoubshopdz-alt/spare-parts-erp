@@ -7,7 +7,7 @@
     "archive-legacy": "node scripts/archive_legacy.js",
     "git-info": "node git_info.js",
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node scripts/generate-manifest.js",
     "electron:dev": "vite",
     "electron:build": "npm run build && electron-builder",
     "build:win": "npm run build && electron-builder --win",

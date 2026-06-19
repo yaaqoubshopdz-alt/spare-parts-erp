@@ -1616,6 +1616,35 @@ export const DatabaseService = {
     } catch (e) {
       console.error('[DatabaseService] Invoice draft migration failed:', e);
     }
+
+    // ── Pack Size Quantity Migration ──
+    try {
+      const raw = this.getRawDb();
+      const migrationChecked = raw.prepare("SELECT value FROM app_settings WHERE key = 'pack_size_migration_done'").get() as { value: string } | undefined;
+      if (!migrationChecked || migrationChecked.value !== 'true') {
+        console.log('[DatabaseService] Running Pack Size quantity migration: converting database quantities to boxes...');
+        
+        const subunitProducts = raw.prepare("SELECT id, pieces_per_box FROM products WHERE has_sub_unit = 1 AND pieces_per_box > 1").all() as any[];
+        
+        for (const prod of subunitProducts) {
+          const factor = prod.pieces_per_box || 1;
+          
+          // Update stock_balances
+          raw.prepare("UPDATE stock_balances SET quantity = quantity / ? WHERE product_id = ?").run(factor, prod.id);
+          
+          // Update product_batches
+          raw.prepare("UPDATE product_batches SET quantity_initial = quantity_initial / ?, quantity_remaining = quantity_remaining / ? WHERE product_id = ?").run(factor, factor, prod.id);
+          
+          // Update stock_movements
+          raw.prepare("UPDATE stock_movements SET quantity = quantity / ?, balance_after = balance_after / ? WHERE product_id = ?").run(factor, factor, prod.id);
+        }
+        
+        raw.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('pack_size_migration_done', 'true')").run();
+        console.log('[DatabaseService] ✅ Pack Size quantity migration completed successfully!');
+      }
+    } catch (migrationError) {
+      console.error('[DatabaseService] Pack Size quantity migration failed:', migrationError);
+    }
   },
 
   /**
