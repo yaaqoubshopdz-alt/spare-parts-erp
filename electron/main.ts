@@ -128,6 +128,7 @@ import { registerInventoryIPC } from './ipc/inventory.ipc';
 import { registerAccountingIPC } from './ipc/accounting.ipc';
 import { registerInventoryCountIPC } from './ipc/inventory-count.ipc';
 import { registerMobileIPC } from './ipc/mobile.ipc';
+import { registerAIIPC } from './ipc/ai.ipc';
 import { MobileBridge } from './mobile-bridge/MobileBridge';
 
 let mainWindow: BrowserWindow | null = null;
@@ -268,6 +269,7 @@ function registerAllIPC() {
   registerAccountingIPC();
   registerInventoryCountIPC();
   registerMobileIPC();
+  registerAIIPC();
 
   // OTA Update
   ipcMain.handle('ota:check', async () => {

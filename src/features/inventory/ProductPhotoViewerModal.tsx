@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Image as ImageIcon, CheckCircle2, AlertCircle, Trash2, Check } from 'lucide-react';
-import { showError } from '../../shared/utils/notifications';
+import { X, Image as ImageIcon, CheckCircle2, AlertCircle, Trash2, Check, Copy } from 'lucide-react';
+import { showError, showSuccess } from '../../shared/utils/notifications';
 
 interface ProductPhotoViewerModalProps {
   isOpen: boolean;
@@ -21,6 +21,59 @@ export default function ProductPhotoViewerModal({ isOpen, product, onClose }: Pr
   const [loading, setLoading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; imgId: number; showConfirm?: boolean } | null>(null);
+  const [copyingId, setCopyingId] = useState<number | null>(null);
+
+  const handleCopyImage = async (filePath: string, imgId: number) => {
+    setCopyingId(imgId);
+    try {
+      const imgUrl = `http://localhost:8766/images/${filePath}`;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = async () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Could not get 2d context');
+          ctx.drawImage(img, 0, 0);
+          canvas.toBlob(async (blob) => {
+            if (!blob) {
+              setCopyingId(null);
+              showError('فشل معالجة الصورة للنسخ');
+              return;
+            }
+            try {
+              await navigator.clipboard.write([
+                new ClipboardItem({
+                  'image/png': blob
+                })
+              ]);
+              showSuccess('تم نسخ الصورة للحافظة بنجاح!');
+            } catch (err: any) {
+              console.error('Clipboard write error:', err);
+              showError('فشل نسخ الصورة للحافظة.');
+            } finally {
+              setTimeout(() => setCopyingId(null), 2000);
+            }
+          }, 'image/png');
+        } catch (err) {
+          console.error('Canvas convert error:', err);
+          showError('فشل معالجة الصورة للنسخ');
+          setCopyingId(null);
+        }
+      };
+      img.onerror = () => {
+        showError('فشل تحميل الصورة للنسخ');
+        setCopyingId(null);
+      };
+      img.src = imgUrl;
+    } catch (err) {
+      console.error('Error copying image:', err);
+      showError('حدث خطأ أثناء نسخ الصورة');
+      setCopyingId(null);
+    }
+  };
 
   useEffect(() => {
     if (isOpen && product) {
@@ -169,6 +222,23 @@ export default function ProductPhotoViewerModal({ isOpen, product, onClose }: Pr
                       <Trash2 size={14} />
                     </button>
 
+                    {/* Copy Button (visible on group hover) */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCopyImage(img.filePath, img.id);
+                      }}
+                      className="absolute top-3 left-13 z-20 p-2 bg-white/95 dark:bg-background_secondary/95 text-text_primary rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-violet-500 hover:text-white dark:hover:bg-violet-600 dark:hover:text-white hover:scale-105 active:scale-95 shadow-md cursor-pointer flex items-center justify-center"
+                      title="نسخ الصورة للحافظة"
+                    >
+                      {copyingId === img.id ? (
+                        <Check size={14} className="text-success_green" />
+                      ) : (
+                        <Copy size={14} />
+                      )}
+                    </button>
+
                     {/* Confirmation Overlay */}
                     {confirmDeleteId === img.id && (
                       <div className="absolute inset-0 bg-background_secondary/95 backdrop-blur-sm z-30 flex flex-col items-center justify-center p-4 text-center animate-in fade-in zoom-in-95 duration-200">
@@ -239,17 +309,37 @@ export default function ProductPhotoViewerModal({ isOpen, product, onClose }: Pr
           dir="rtl"
         >
           {!contextMenu.showConfirm ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setContextMenu(prev => prev ? { ...prev, showConfirm: true } : null);
-              }}
-              className="w-full text-right px-3 py-2 text-xs text-danger_red hover:bg-danger_red/10 rounded-lg font-black flex items-center gap-2 transition-colors cursor-pointer"
-            >
-              <Trash2 size={13} />
-              حذف الصورة
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const targetImg = images.find(i => i.id === contextMenu.imgId);
+                  if (targetImg) {
+                    handleCopyImage(targetImg.filePath, targetImg.id);
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full text-right px-3 py-2 text-xs text-text_primary hover:bg-text_primary/10 rounded-lg font-black flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <Copy size={13} />
+                نسخ الصورة
+              </button>
+
+              <div className="border-t border-border_default/30 my-0.5" />
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setContextMenu(prev => prev ? { ...prev, showConfirm: true } : null);
+                }}
+                className="w-full text-right px-3 py-2 text-xs text-danger_red hover:bg-danger_red/10 rounded-lg font-black flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <Trash2 size={13} />
+                حذف الصورة
+              </button>
+            </>
           ) : (
             <div className="flex flex-col gap-2">
               <span className="text-xs font-bold text-text_primary">هل أنت متأكد من حذف الصورة؟</span>

@@ -14,7 +14,7 @@ import {
   Home, ShoppingCart, ShoppingBag, Package,
   Users, UserCheck, Landmark, Settings, LogOut,
   Wrench, Sun, Moon, AlertTriangle, KeyRound,
-  Receipt
+  Receipt, Brain
 } from 'lucide-react';
 import { useAppStore } from '../../../store/app.store';
 import AccountModal from '../../../features/auth/AccountModal';
@@ -41,6 +41,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'customers', labelAr: 'الزبائن', labelFr: 'Clients', icon: Users, route: '/customers', permission: 'view_customers' },
   { id: 'suppliers', labelAr: 'الموردون', labelFr: 'Fournisseurs', icon: UserCheck, route: '/suppliers', permission: 'view_suppliers' },
   { id: 'expenses', labelAr: 'المصاريف', labelFr: 'Dépenses', icon: Receipt, route: '/expenses', permission: 'view_cashbox' },
+  { id: 'consultant', labelAr: 'مستشار ذكي', labelFr: 'Consultant IA', icon: Brain, route: '/consultant' },
   { id: 'accounting', labelAr: 'المحاسبة المتقدمة', labelFr: 'Comptabilité', icon: Landmark, route: '/accounting', permission: 'view_reports' },
   { id: 'settings', labelAr: 'الإعدادات', labelFr: 'Paramètres', icon: Settings, route: '/settings', permission: 'view_settings' },
   { id: 'switch_user', labelAr: 'تبديل المستخدم', labelFr: 'Changer d\'utilisateur', icon: KeyRound, position: 'bottom' },

@@ -73,7 +73,7 @@ export function registerDashboardIPC() {
       // Today's profit estimate
       const todayProfit: any = raw.prepare(`
         SELECT COALESCE(SUM(
-          si.quantity * (si.unit_price - si.cost_price_snapshot)
+          si.total - (si.quantity * si.cost_price_snapshot)
         ), 0) as profit
         FROM sales_invoice_items si
         JOIN sales_invoices s ON si.invoice_id = s.id

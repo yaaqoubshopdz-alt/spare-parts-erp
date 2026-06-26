@@ -28,7 +28,8 @@ import {
   Keyboard,
   RefreshCw,
   Smartphone,
-  QrCode
+  QrCode,
+  Cpu
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { showSuccess, showError } from '../../shared/utils/notifications';
@@ -188,6 +189,44 @@ const SHORTCUT_LABELS: Record<keyof ShortcutMapping, string> = {
   goto_purchase: 'الانتقال إلى وصل الشراء (إدخال مخزون)',
 };
 
+const PROVIDER_MODELS: Record<string, { label: string; value: string }[]> = {
+  gemini: [
+    { label: 'Gemini 3.5 Flash (الافتراضي - الأسرع والأنسب للمساعدين والبرمجة)', value: 'gemini-3.5-flash' },
+    { label: 'Gemini 3.1 Pro (النموذج الأقوى للتحليلات والتفكير المعقد)', value: 'gemini-3.1-pro' },
+    { label: 'Gemini 3 Flash (نموذج متزن وسريع)', value: 'gemini-3-flash' },
+    { label: 'Gemini 3.1 Flash-Lite (اقتصادي جداً وسريع)', value: 'gemini-3.1-flash-lite' },
+    { label: 'Gemini 2.5 Pro (مستقر - إصدار 2025)', value: 'gemini-2.5-pro' },
+    { label: 'Gemini 2.5 Flash (مستقر وسريع - إصدار 2025)', value: 'gemini-2.5-flash' },
+    { label: 'Gemini 1.5 Pro (قديم)', value: 'gemini-1.5-pro' },
+    { label: 'Gemini 1.5 Flash (قديم)', value: 'gemini-1.5-flash' },
+    { label: 'كتابة نموذج مخصص...', value: 'custom' },
+  ],
+  openai: [
+    { label: 'GPT-5.4 Mini (الافتراضي - سريع واقتصادي)', value: 'gpt-5.4-mini' },
+    { label: 'GPT-5.4 (متوازن - للاستخدام العام)', value: 'gpt-5.4' },
+    { label: 'GPT-5.5 (الأقوى - للتحليلات المعقدة)', value: 'gpt-5.5' },
+    { label: 'GPT-5.4 Pro (استدلال عميق)', value: 'gpt-5.4-pro' },
+    { label: 'GPT-5.4 Nano (الأسرع والأرخص)', value: 'gpt-5.4-nano' },
+    { label: 'كتابة نموذج مخصص...', value: 'custom' },
+  ],
+  nvidia: [
+    { label: 'DeepSeek V4 Pro (النموذج الأحدث والأقوى للاستدلال والتسويق)', value: 'deepseek-ai/deepseek-v4-pro' },
+    { label: 'DeepSeek V4 Flash (سريع جداً ومناسب للدردشة التفاعلية)', value: 'deepseek-ai/deepseek-v4-flash' },
+    { label: 'DeepSeek R1 (استدلال عميق متقدم للتحليلات الرياضية)', value: 'deepseek-ai/deepseek-r1' },
+    { label: 'Llama-3.3 Nemotron Super 49B (مثالي للمؤسسات)', value: 'nvidia/llama-3.3-nemotron-super-49b-v1' },
+    { label: 'Nemotron-3-Ultra 550B (سياق مليون رمز)', value: 'nvidia/nemotron-3-ultra-550b-a55b' },
+    { label: 'Qwen 2.5 72B Instruct (ممتاز باللغة العربية والترميز)', value: 'qwen/qwen2.5-72b-instruct' },
+    { label: 'Llama 3.3 70B Instruct (سريع ومتوازن)', value: 'meta/llama-3.3-70b-instruct' },
+    { label: 'Llama 3.2 90B Vision Instruct (قراءة وفهم الصور والوثائق)', value: 'meta/llama-3.2-90b-vision-instruct' },
+    { label: 'كتابة نموذج مخصص...', value: 'custom' },
+  ],
+  'openai-compatible': [
+    { label: 'Llama 3 (الافتراضي)', value: 'llama3' },
+    { label: 'Mistral (مخصص)', value: 'mistral' },
+    { label: 'كتابة نموذج مخصص...', value: 'custom' },
+  ],
+};
+
 export default function SettingsPage() {
   const { user: currentUser } = useAuth();
   const { enableSidebarHover, setEnableSidebarHover } = useAppStore();
@@ -201,7 +240,35 @@ export default function SettingsPage() {
   const [countArchiveTotal, setCountArchiveTotal] = useState(0);
 
   const canManageUsers = currentUser && ['owner', 'manager'].includes(currentUser.role);
-  const [activeTab, setActiveTab] = useState<'profile' | 'print' | 'vehicles' | 'inventory_archive' | 'users' | 'backup' | 'shortcuts' | 'mobile'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'print' | 'vehicles' | 'inventory_archive' | 'users' | 'backup' | 'shortcuts' | 'mobile' | 'ai'>('profile');
+
+  // ── AI Settings State ─────────────────────────────────────────────
+  const [aiMode, setAiMode] = useState<'automatic' | 'manual'>('manual');
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'nvidia' | 'openai-compatible'>('gemini');
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [aiMaskedKey, setAiMaskedKey] = useState('');
+  const [aiHasKey, setAiHasKey] = useState(false);
+  const [aiModel, setAiModel] = useState('');
+  const [aiBaseUrl, setAiBaseUrl] = useState('');
+  const [aiKeyVisible, setAiKeyVisible] = useState(false);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiTesting, setAiTesting] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<{ success: boolean; latencyMs?: number; error?: string } | null>(null);
+  const [aiNewKeyInput, setAiNewKeyInput] = useState(''); // الحقل لإدخال مفتاح جديد
+  const [aiModelPreset, setAiModelPreset] = useState(''); // خيار النموذج المختار في القائمة
+
+  // مزامنة خيار القائمة المنسدلة مع حقل النموذج المكتوب
+  useEffect(() => {
+    const presets = PROVIDER_MODELS[aiProvider] || [];
+    const isPreset = presets.some(p => p.value === aiModel);
+    if (aiModel === '') {
+      setAiModelPreset(presets[0]?.value || 'custom');
+    } else if (isPreset) {
+      setAiModelPreset(aiModel);
+    } else {
+      setAiModelPreset('custom');
+    }
+  }, [aiModel, aiProvider]);
 
   // Keyboard Shortcuts State
   const [recordingAction, setRecordingAction] = useState<keyof ShortcutMapping | null>(null);
@@ -382,8 +449,24 @@ export default function SettingsPage() {
       loadUsersList();
     } else if (activeTab === 'mobile') {
       loadMobileServerInfo();
+    } else if (activeTab === 'ai') {
+      loadAIConfig();
     }
   }, [activeTab]);
+
+  const loadAIConfig = async () => {
+    try {
+      const res = await window.electronAPI.invoke('ai:getConfig');
+      if (res.success && res.data) {
+        setAiMode(res.data.mode || 'manual');
+        setAiProvider(res.data.provider || 'gemini');
+        setAiMaskedKey(res.data.maskedKey || '');
+        setAiHasKey(res.data.hasKey || false);
+        setAiModel(res.data.model || '');
+        setAiBaseUrl(res.data.baseUrl || '');
+      }
+    } catch { /* silent */ }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -856,6 +939,7 @@ export default function SettingsPage() {
     ...(canManageUsers ? [{ id: 'users', label: 'إدارة الموظفين', icon: Users }] : []),
     { id: 'mobile', label: 'الجهاز المحمول', icon: Smartphone },
     { id: 'backup', label: 'النسخ الاحتياطي', icon: Database },
+    { id: 'ai', label: '🤖 الذكاء الاصطناعي', icon: Cpu },
   ];
 
   return (
@@ -1920,6 +2004,289 @@ export default function SettingsPage() {
                     فشل جلب معلومات الخادم. يرجى التحقق من تشغيل التطبيق في بيئة Electron.
                   </div>
                 )}
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── AI Settings Tab ─────────────────────────────────────── */}
+          {activeTab === 'ai' && (
+            <motion.div
+              key="ai"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-6"
+            >
+              {/* Header */}
+              <div className="flex items-center gap-3 pb-2 border-b border-border_default">
+                <div className="w-10 h-10 rounded-xl bg-violet-500/15 flex items-center justify-center">
+                  <Cpu size={20} className="text-violet-500" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-text_primary">إعدادات الذكاء الاصطناعي</h3>
+                  <p className="text-xs text-text_secondary font-bold">اربط المستشار الذكي بخدمة AI من اختيارك</p>
+                </div>
+              </div>
+
+              {/* Mode Toggle */}
+              <div className="bg-background_primary/40 border border-border_default rounded-2xl p-5 space-y-3">
+                <h4 className="text-sm font-black text-text_primary">وضع التشغيل</h4>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setAiMode('automatic')}
+                    className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all ${
+                      aiMode === 'automatic'
+                        ? 'bg-violet-500/15 border-violet-500 text-violet-600 dark:text-violet-400'
+                        : 'border-border_default text-text_secondary hover:border-violet-400'
+                    }`}
+                  >
+                    ⚡ تلقائي (API مباشر)
+                    <p className="text-xs font-medium opacity-70 mt-0.5">أدخل مفتاح API وتفاعل فوراً</p>
+                  </button>
+                  <button
+                    onClick={() => setAiMode('manual')}
+                    className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold border-2 transition-all ${
+                      aiMode === 'manual'
+                        ? 'bg-amber-500/15 border-amber-500 text-amber-600 dark:text-amber-400'
+                        : 'border-border_default text-text_secondary hover:border-amber-400'
+                    }`}
+                  >
+                    📋 يدوي (نسخ وتصدير)
+                    <p className="text-xs font-medium opacity-70 mt-0.5">انسخ البيانات لـ ChatGPT/Gemini/Claude</p>
+                  </button>
+                </div>
+              </div>
+
+              {/* API Configuration (shown in automatic mode) */}
+              {aiMode === 'automatic' && (
+                <div className="bg-background_primary/40 border border-border_default rounded-2xl p-5 space-y-4">
+                  <h4 className="text-sm font-black text-text_primary">إعدادات موفر الخدمة</h4>
+
+                  {/* Provider Select */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-text_secondary">الموفر</label>
+                    <select
+                      value={aiProvider}
+                      onChange={(e) => {
+                        setAiProvider(e.target.value as typeof aiProvider);
+                        setAiModel('');
+                        setAiBaseUrl('');
+                      }}
+                      className="w-full bg-background_secondary border border-border_default rounded-xl px-4 py-2.5 text-sm font-bold text-text_primary focus:outline-none focus:border-violet-500 transition-colors"
+                    >
+                      <option value="gemini">🔵 Google Gemini</option>
+                      <option value="openai">🟢 OpenAI (GPT)</option>
+                      <option value="nvidia">🟠 NVIDIA NIM</option>
+                      <option value="openai-compatible">⚙️ موفر مخصص (Ollama / LM Studio)</option>
+                    </select>
+                  </div>
+
+                  {/* API Key */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-text_secondary">
+                      مفتاح الـ API
+                      {aiHasKey && <span className="text-success_green mr-2">(محفوظ ✓)</span>}
+                    </label>
+                    {aiHasKey && !aiKeyVisible ? (
+                      <div className="flex gap-2">
+                        <div className="flex-1 bg-background_secondary border border-border_default rounded-xl px-4 py-2.5 text-sm font-mono text-text_secondary">
+                          {aiMaskedKey}
+                        </div>
+                        <button
+                          onClick={() => setAiKeyVisible(true)}
+                          className="px-4 py-2.5 bg-background_secondary border border-border_default rounded-xl text-xs font-bold text-text_secondary hover:text-text_primary transition-colors"
+                        >
+                          تغيير
+                        </button>
+                      </div>
+                    ) : (
+                      <input
+                        type="password"
+                        value={aiNewKeyInput}
+                        onChange={(e) => setAiNewKeyInput(e.target.value)}
+                        placeholder={
+                          aiProvider === 'gemini' ? 'AIzaSy...'
+                          : aiProvider === 'openai' ? 'sk-...'
+                          : aiProvider === 'nvidia' ? 'nvapi-...'
+                          : 'المفتاح المخصص'
+                        }
+                        className="w-full bg-background_secondary border border-border_default rounded-xl px-4 py-2.5 text-sm font-mono text-text_primary focus:outline-none focus:border-violet-500 transition-colors placeholder-text_secondary/50"
+                        dir="ltr"
+                      />
+                    )}
+                  </div>
+
+                  {/* Model Selection */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-text_secondary">النموذج (Model)</label>
+                    <select
+                      value={aiModelPreset}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAiModelPreset(val);
+                        if (val === 'custom') {
+                          setAiModel('');
+                        } else {
+                          setAiModel(val);
+                        }
+                      }}
+                      className="w-full bg-background_secondary border border-border_default rounded-xl px-4 py-2.5 text-sm font-bold text-text_primary focus:outline-none focus:border-violet-500 transition-colors"
+                    >
+                      {(PROVIDER_MODELS[aiProvider] || []).map((preset) => (
+                        <option key={preset.value} value={preset.value}>
+                          {preset.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {aiModelPreset === 'custom' && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-text_secondary">اسم النموذج المخصص (Custom Model Name)</label>
+                      <input
+                        type="text"
+                        value={aiModel}
+                        onChange={(e) => setAiModel(e.target.value)}
+                        placeholder="أدخل اسم النموذج هنا (مثال: gemini-2.5-pro)"
+                        className="w-full bg-background_secondary border border-border_default rounded-xl px-4 py-2.5 text-sm font-mono text-text_primary focus:outline-none focus:border-violet-500 transition-colors placeholder-text_secondary/50"
+                        dir="ltr"
+                      />
+                    </div>
+                  )}
+
+                  {/* Base URL (for custom provider) */}
+                  {aiProvider === 'openai-compatible' && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-text_secondary">عنوان الخادم (Base URL)</label>
+                      <input
+                        type="text"
+                        value={aiBaseUrl}
+                        onChange={(e) => setAiBaseUrl(e.target.value)}
+                        placeholder="http://localhost:11434"
+                        className="w-full bg-background_secondary border border-border_default rounded-xl px-4 py-2.5 text-sm font-mono text-text_primary focus:outline-none focus:border-violet-500 transition-colors placeholder-text_secondary/50"
+                        dir="ltr"
+                      />
+                    </div>
+                  )}
+
+                  {/* Test Connection Result */}
+                  {aiTestResult && (
+                    <div className={`flex items-center gap-2 p-3 rounded-xl text-sm font-bold ${
+                      aiTestResult.success
+                        ? 'bg-success_green/10 border border-success_green/30 text-success_green'
+                        : 'bg-danger_red/10 border border-danger_red/30 text-danger_red'
+                    }`}>
+                      {aiTestResult.success ? (
+                        <>
+                          <span>✅</span>
+                          <span>متصل بنجاح ⚡ {aiTestResult.latencyMs}ms</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>❌</span>
+                          <span>{aiTestResult.error}</span>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Buttons */}
+                  <div className="flex gap-3 pt-1">
+                    <button
+                      onClick={async () => {
+                        setAiTesting(true);
+                        setAiTestResult(null);
+                        try {
+                          const override: any = {
+                            provider: aiProvider,
+                            model: aiModel,
+                            baseUrl: aiBaseUrl,
+                          };
+                          if (aiNewKeyInput) override.apiKey = aiNewKeyInput;
+                          const res = await window.electronAPI.invoke('ai:testConnection', override);
+                          setAiTestResult(res);
+                        } catch (e: any) {
+                          setAiTestResult({ success: false, error: e.message });
+                        } finally {
+                          setAiTesting(false);
+                        }
+                      }}
+                      disabled={aiTesting || (!aiHasKey && !aiNewKeyInput)}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-background_secondary border border-border_default rounded-xl text-sm font-bold text-text_secondary hover:text-text_primary hover:border-violet-400 transition-all disabled:opacity-50"
+                    >
+                      <RefreshCw size={14} className={aiTesting ? 'animate-spin' : ''} />
+                      {aiTesting ? 'جاري الاختبار...' : 'اختبار الاتصال 🔌'}
+                    </button>
+
+                    <button
+                      onClick={async () => {
+                        setAiSaving(true);
+                        try {
+                          const res = await window.electronAPI.invoke('ai:saveConfig', {
+                            mode: aiMode,
+                            provider: aiProvider,
+                            apiKey: aiNewKeyInput || undefined,
+                            model: aiModel,
+                            baseUrl: aiBaseUrl,
+                          });
+                          if (res.success) {
+                            showSuccess('تم حفظ إعدادات الذكاء الاصطناعي');
+                            setAiNewKeyInput('');
+                            setAiKeyVisible(false);
+                            await loadAIConfig();
+                          } else {
+                            showError(res.error || 'فشل الحفظ');
+                          }
+                        } catch (e: any) {
+                          showError(e.message);
+                        } finally {
+                          setAiSaving(false);
+                        }
+                      }}
+                      disabled={aiSaving}
+                      className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 bg-violet-500 hover:bg-violet-600 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+                    >
+                      {aiSaving ? <RefreshCw size={14} className="animate-spin" /> : <span>💾</span>}
+                      {aiSaving ? 'جاري الحفظ...' : 'حفظ الإعدادات'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Manual Mode Info */}
+              {aiMode === 'manual' && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-5 space-y-3">
+                  <h4 className="text-sm font-black text-amber-700 dark:text-amber-400">📋 الوضع اليدوي — كيفية الاستخدام</h4>
+                  <ol className="text-xs text-text_secondary font-bold space-y-2 list-decimal list-inside leading-relaxed">
+                    <li>اذهب إلى صفحة <strong>المستشار الذكي</strong> من القائمة الجانبية</li>
+                    <li>اضغط <strong>"نسخ البرومبت بالكامل"</strong> للحصول على سياق متجرك</li>
+                    <li>افتح موقع الذكاء الاصطناعي المفضل لديك (Gemini أو ChatGPT أو Claude أو DeepSeek)</li>
+                    <li>الصق البرومبت هناك وابدأ الدردشة والنقاش الاستراتيجي مباشرة بشكل تفاعلي ومجاني بالكامل</li>
+                  </ol>
+                  <button
+                    onClick={async () => {
+                      setAiSaving(true);
+                      try {
+                        await window.electronAPI.invoke('ai:saveConfig', { mode: 'manual', provider: aiProvider });
+                        showSuccess('تم حفظ الوضع اليدوي');
+                      } finally { setAiSaving(false); }
+                    }}
+                    disabled={aiSaving}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+                  >
+                    {aiSaving ? <RefreshCw size={14} className="animate-spin" /> : '💾'}
+                    حفظ الوضع اليدوي
+                  </button>
+                </div>
+              )}
+
+              {/* Info box */}
+              <div className="bg-primary_blue/5 border border-primary_blue/15 rounded-2xl p-4 flex gap-3">
+                <span className="text-lg shrink-0">🔒</span>
+                <p className="text-xs text-text_secondary font-bold leading-relaxed">
+                  مفتاح الـ API يُحفظ محلياً في قاعدة البيانات ولا يُرسل إلا مباشرةً لخدمة الذكاء الاصطناعي التي اخترتها. لا يُعرض في أي مكان آخر.
+                </p>
               </div>
             </motion.div>
           )}

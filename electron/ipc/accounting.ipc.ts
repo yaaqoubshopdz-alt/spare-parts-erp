@@ -554,16 +554,29 @@ export function registerAccountingIPC() {
           SUM(CASE WHEN julianday('now') - julianday(je.date) > ? AND julianday('now') - julianday(je.date) <= ? THEN (${balanceExpr}) ELSE 0 END) as days_31_60,
           SUM(CASE WHEN julianday('now') - julianday(je.date) > ? AND julianday('now') - julianday(je.date) <= ? THEN (${balanceExpr}) ELSE 0 END) as days_61_90,
           SUM(CASE WHEN julianday('now') - julianday(je.date) > ? THEN (${balanceExpr}) ELSE 0 END) as over_90,
-          SUM(${balanceExpr}) as total
+          SUM(${balanceExpr}) as total,
+          COALESCE((
+            SELECT SUM(CASE WHEN '${partyType}' = 'customer' THEN jel2.credit - jel2.debit ELSE jel2.debit - jel2.credit END)
+            FROM journal_entry_lines jel2
+            JOIN journal_entries je2 ON jel2.entry_id = je2.id
+            WHERE jel2.account_id = ? 
+              AND jel2.party_type = jel.party_type 
+              AND jel2.party_id = jel.party_id
+              AND je2.reference_type IN ('debt_write_off', 'debt_write_off_reversal', 'debt_recovery_reversal')
+              AND je2.status = 'posted'
+          ), 0) as written_off_amount
         FROM journal_entry_lines jel
         JOIN journal_entries je ON jel.entry_id = je.id
         LEFT JOIN customers c ON jel.party_type = 'customer' AND jel.party_id = c.id
         LEFT JOIN suppliers s ON jel.party_type = 'supplier' AND jel.party_id = s.id
-        WHERE jel.account_id = ? AND jel.party_type = ? AND je.status = 'posted'
+        WHERE jel.account_id = ? 
+          AND jel.party_type = ? 
+          AND je.status = 'posted'
+          AND je.reference_type NOT IN ('debt_write_off', 'debt_write_off_reversal', 'debt_recovery_reversal')
         GROUP BY jel.party_id
-        HAVING total > 0.01
-        ORDER BY total DESC
-      `).all(days1, days1, days2, days2, days3, days3, accountId, partyType) as any[];
+        HAVING total > 0.01 OR written_off_amount > 0.01
+        ORDER BY total DESC, written_off_amount DESC
+      `).all(days1, days1, days2, days2, days3, days3, accountId, accountId, partyType) as any[];
 
       return { success: true, data: aging };
     } catch (e: any) { return { success: false, error: e.message }; }
@@ -585,7 +598,7 @@ export function registerAccountingIPC() {
           date: today,
           description: `شطب دين كديون معدومة للزبون - ${data.notes || ''}`,
           reference_type: 'debt_write_off',
-          reference_id: data.customerId,
+          reference_id: Date.now(),
           user_id: data._user_id || 1,
           lines: [
             { account_id: AccountingEngine.ACCOUNTS.OP_EXPENSE, debit: data.amount, credit: 0 },
@@ -607,6 +620,44 @@ export function registerAccountingIPC() {
           INSERT INTO audit_log (user_id, action, table_name, record_id, description, created_at)
           VALUES (?, 'debt_write_off', 'customers', ?, ?, datetime('now'))
         `).run(data._user_id || 1, data.customerId, `شطب دين كديون معدومة للزبون بمبلغ ${data.amount}`);
+      });
+      tx();
+      return { success: true };
+    } catch (e: any) { return { success: false, error: e.message }; }
+  });
+
+  /** إلغاء شطب دين زبون (إرجاع الخسائر) */
+  ipcMain.handle('accounting:reverseWriteOffCustomerDebt', async (_e, data: { customerId: number, amount: number, notes?: string, _user_id?: number }) => {
+    try {
+      const raw = db();
+      const tx = raw.transaction(() => {
+        const today = new Date().toISOString().split('T')[0];
+        
+        // التحقق من تاريخ الإقفال
+        AccountingEngine._checkClosingDate(raw, today);
+        AccountingEngine._initAccounts(raw);
+
+        // إنشاء قيد إلغاء شطب الدين كخسائر معدومة
+        const entryId = AccountingEngine.createJournalEntry(raw, {
+          date: today,
+          description: `إلغاء شطب دين (إرجاع الخسائر) للزبون - ${data.notes || ''}`,
+          reference_type: 'debt_write_off_reversal',
+          reference_id: Date.now(),
+          user_id: data._user_id || 1,
+          lines: [
+            { account_id: AccountingEngine.ACCOUNTS.AR, debit: data.amount, credit: 0, party_type: 'customer', party_id: data.customerId },
+            { account_id: AccountingEngine.ACCOUNTS.OP_EXPENSE, debit: 0, credit: data.amount }
+          ]
+        });
+
+        // تحديث رصيد الزبون في قاعدة البيانات بإضافة المبلغ المشطوب
+        raw.prepare('UPDATE customers SET balance = balance + ? WHERE id = ?').run(data.amount, data.customerId);
+
+        // تسجيل في سجل المراجعة (Audit Log)
+        raw.prepare(`
+          INSERT INTO audit_log (user_id, action, table_name, record_id, description, created_at)
+          VALUES (?, 'debt_write_off_reversal', 'customers', ?, ?, datetime('now'))
+        `).run(data._user_id || 1, data.customerId, `إلغاء شطب دين للزبون بمبلغ ${data.amount}`);
       });
       tx();
       return { success: true };
@@ -868,7 +919,7 @@ export function registerAccountingIPC() {
       // 8. أرباح اليوم
       const todayProfitObj: any = raw.prepare(`
         SELECT COALESCE(SUM(
-          si.quantity * (si.unit_price - si.cost_price_snapshot)
+          si.total - (si.quantity * si.cost_price_snapshot)
         ), 0) as profit
         FROM sales_invoice_items si
         JOIN sales_invoices s ON si.invoice_id = s.id

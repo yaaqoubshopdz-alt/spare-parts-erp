@@ -6,11 +6,11 @@ import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { useShortcutStore } from '../../store/shortcutStore';
 import {
-  ShoppingCart, AlertTriangle, Clock, Truck, CalendarClock, Bell, BellRing, ShoppingBag, FileText, X, TrendingUp, Coins
+  ShoppingCart, AlertTriangle, Clock, Truck, CalendarClock, Bell, BellRing, ShoppingBag, FileText, X, TrendingUp, Coins, Brain, RefreshCw, Zap, Settings, ChevronLeft, ChevronUp, ChevronDown
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { showNav } from '../../shared/utils/notifications';
+import { showNav, showSuccess, showError } from '../../shared/utils/notifications';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
@@ -104,6 +104,14 @@ export default function DashboardPage() {
   // Recent Drafts State (notification dropdown — all drafts)
   const [recentDrafts, setRecentDrafts] = useState<any[]>([]);
 
+  // AI Consultant States
+  const [aiAnalysis, setAiAnalysis] = useState<any | null>(null);
+  const [aiConfig, setAiConfig] = useState<any | null>(null);
+  const [aiLoading, setAiLoading] = useState<boolean>(false);
+  const [expandedRecId, setExpandedRecId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'consultant' | 'lowStock'>('consultant');
+
+
   useEffect(() => {
     loadDashboard();
     loadRecentLowStock();
@@ -121,19 +129,30 @@ export default function DashboardPage() {
     };
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
+  }, []);  // Auto-switch tabs every 15 seconds, resetting on activeTab change
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveTab((prev) => (prev === 'consultant' ? 'lowStock' : 'consultant'));
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [activeTab]);
+
 
   const loadDashboard = async () => {
     setLoading(true);
     try {
-      const [summaryRes, lowStockRes, invoicesRes] = await Promise.all([
+      const [summaryRes, lowStockRes, invoicesRes, aiAnalysisRes, aiConfigRes] = await Promise.all([
         window.electronAPI.invoke('db:dashboard:summary'),
         window.electronAPI.invoke('db:dashboard:lowStock'),
         window.electronAPI.invoke('db:dashboard:todayInvoices'),
+        window.electronAPI.invoke('ai:getLastAnalysis'),
+        window.electronAPI.invoke('ai:getConfig'),
       ]);
       if (summaryRes.success) setData(summaryRes.data);
       if (lowStockRes.success) setLowStock(lowStockRes.data);
       if (invoicesRes.success) setTodayInvoices(invoicesRes.data);
+      if (aiAnalysisRes.success && aiAnalysisRes.data) setAiAnalysis(aiAnalysisRes.data);
+      if (aiConfigRes.success && aiConfigRes.data) setAiConfig(aiConfigRes.data);
     } catch (err) {
       console.error('[Dashboard] Load error:', err);
     } finally {
@@ -141,6 +160,24 @@ export default function DashboardPage() {
     }
     // Also load recent drafts for notification dropdown
     loadRecentDrafts();
+  };
+
+  const handleRunAnalysis = async () => {
+    if (aiLoading) return;
+    setAiLoading(true);
+    try {
+      const res = await window.electronAPI.invoke('ai:analyze');
+      if (res.success && res.data) {
+        setAiAnalysis(res.data);
+        showSuccess('تم تحديث التوصيات الذكية بنجاح! 🧠');
+      } else {
+        showError(res.error || 'فشل تشغيل التحليل. تأكد من إعدادات الـ API Key.');
+      }
+    } catch (e: any) {
+      showError(e.message);
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const loadRecentDrafts = async () => {
@@ -573,96 +610,302 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Low Stock — Area Chart by Category */}
-        <div className="bg-background_secondary rounded-2xl border border-border_default p-5 flex flex-col flex-1 min-h-[300px]">
-          <div className="flex items-center justify-between mb-4 shrink-0">
-            <h3 className="text-base font-bold text-text_primary flex items-center gap-2">
-              <AlertTriangle size={20} className="text-amber-500" />
-              مخزون منخفض حسب التصنيف
-            </h3>
-            {/* Dynamic Legend at Top Right */}
-            <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-full">
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-              <span className="text-[11px] font-bold text-text_primary">المنتجات الناقصة</span>
+        {/* AI Consultant Daily Widget */}
+        <div className="bg-background_secondary rounded-2xl border border-border_default/10 p-5 flex flex-col flex-1 min-h-[350px]">
+          {/* Header with Switchable Tabs */}
+          <div className="flex items-center justify-between mb-4 shrink-0 pb-3" dir="rtl">
+            <div className="flex bg-background_primary/60 p-0.5 rounded-xl relative">
+              <button
+                onClick={() => setActiveTab('consultant')}
+                className={`relative px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 select-none cursor-pointer z-10 outline-none ${
+                  activeTab === 'consultant' ? 'text-emerald-600 dark:text-emerald-400' : 'text-text_muted hover:text-text_primary'
+                }`}
+              >
+                <Brain size={14} />
+                <span>مستشار الأعمال 🤖</span>
+                {activeTab === 'consultant' && (
+                  <motion.div
+                    layoutId="activeTabIndicator"
+                    className="absolute inset-0 bg-emerald-500/10 rounded-lg -z-10"
+                    transition={{ type: 'spring', damping: 20, stiffness: 250 }}
+                  />
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('lowStock')}
+                className={`relative px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 select-none cursor-pointer z-10 outline-none ${
+                  activeTab === 'lowStock' ? 'text-warning_amber' : 'text-text_muted hover:text-text_primary'
+                }`}
+              >
+                <AlertTriangle size={14} />
+                <span>تحليل النواقص 📉</span>
+                {activeTab === 'lowStock' && (
+                  <motion.div
+                    layoutId="activeTabIndicator"
+                    className="absolute inset-0 bg-warning_amber/10 rounded-lg -z-10"
+                    transition={{ type: 'spring', damping: 20, stiffness: 250 }}
+                  />
+                )}
+              </button>
             </div>
+
+            {/* Right side info metadata */}
+            {activeTab === 'consultant' ? (
+              aiAnalysis ? (
+                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/5 px-2.5 py-1 rounded-full border border-emerald-500/10">
+                  آخر تحليل: {new Date(aiAnalysis.last_analyzed).toLocaleDateString('ar-DZ', { day: 'numeric', month: 'short' })}
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold text-text_secondary bg-zinc-500/5 px-2.5 py-1 rounded-full border border-border_default/20">
+                  لم يتم التحليل
+                </span>
+              )
+            ) : (
+              <span className="text-[10px] font-bold text-warning_amber bg-warning_amber/5 px-2.5 py-1 rounded-full border border-warning_amber/10 font-numbers">
+                {lowStock.length} منتجات منخفضة
+              </span>
+            )}
           </div>
 
-          {lowStock.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-text_muted text-sm">
-              ✓ جميع المنتجات فوق الحد الأدنى للمخزون
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col gap-4 min-h-0">
-              {/* Chart */}
-              <div className="flex-1 min-h-0 mt-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 20 }} onClick={handleChartClick}>
-                    <defs>
-                      <linearGradient id="countGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#facc15" stopOpacity={0.6} />
-                        <stop offset="95%" stopColor="#facc15" stopOpacity={0.05} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border_default)" strokeOpacity={0.4} vertical={true} horizontal={true} />
-                    <XAxis
-                      dataKey="name"
-                      tickFormatter={(name) => {
-                        if (!name) return '';
-                        if (name.includes('الزيوت') || name.includes('تشحيم')) return 'زيوت';
-                        if (name.includes('فلاتر')) return 'فلاتر';
-                        if (name.includes('فرامل')) return 'فرامل';
-                        if (name.includes('التعليق') || name.includes('توجيه')) return 'تعليق';
-                        if (name.includes('المحرك') || name.includes('محرك')) return 'محرك';
-                        if (name.includes('التبريد') || name.includes('تكييف')) return 'تبريد';
-                        if (name.includes('بطاريات') || name.includes('بطارية')) return 'بطاريات';
-                        return name.substring(0, 8);
-                      }}
-                      tick={{ fill: '#d4d4d4', fontSize: 11, fontWeight: 700 }}
-                      tickLine={{ stroke: '#666666', strokeWidth: 1.5 }}
-                      axisLine={{ stroke: '#666666', strokeWidth: 1.5 }}
-                      height={25}
-                      dy={10}
-                    />
-                    <YAxis
-                      tick={{ fill: '#d4d4d4', fontSize: 12, fontWeight: 700 }}
-                      tickLine={{ stroke: '#666666', strokeWidth: 1.5 }}
-                      axisLine={{ stroke: '#666666', strokeWidth: 1.5 }}
-                      domain={[0, 'dataMax + 1']}
-                      allowDecimals={false}
-                      width={40}
-                      dx={-15}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'var(--background_card)',
-                        border: '1px solid var(--border_default)',
-                        borderRadius: '12px',
-                        fontFamily: 'Cairo, sans-serif',
-                        direction: 'rtl',
-                        fontSize: '13px',
-                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                      }}
-                      itemStyle={{ color: '#facc15', fontWeight: 700 }}
-                      formatter={(value: any, name: string) => {
-                        if (name === 'count') return [value, 'منتجات ناقصة'];
-                        return [value, name];
-                      }}
-                      labelFormatter={(label) => `تصنيف: ${label}`}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="count"
-                      stroke="#facc15"
-                      strokeWidth={3}
-                      fill="url(#countGrad)"
-                      dot={{ r: 5, fill: '#facc15', strokeWidth: 2, stroke: '#1e1e1e' }}
-                      activeDot={{ r: 7, stroke: '#facc15', strokeWidth: 2, fill: '#1e1e1e' }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
+          <AnimatePresence mode="wait">
+            {activeTab === 'consultant' ? (
+              <motion.div
+                key="consultant-tab"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+                className="flex-1 flex flex-col min-h-0"
+              >
+                {!aiAnalysis ? (
+                  /* Empty State: AI not analyzed yet */
+                  <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-4">
+                    <Brain size={48} className="text-emerald-500/30 animate-pulse" />
+                    {aiConfig?.hasKey ? (
+                      <>
+                        <p className="text-xs text-text_secondary font-bold max-w-sm leading-relaxed">
+                          مفتاح الـ API جاهز ومحفوظ محلياً. اضغط على زر التحليل بالأسفل لتشغيل أول تحليل شامل والحصول على التوصيات والتحذيرات الذكية لمحلّك فوراً.
+                        </p>
+                        <button
+                          onClick={handleRunAnalysis}
+                          disabled={aiLoading}
+                          className="flex items-center gap-2 px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/25 disabled:opacity-50 cursor-pointer"
+                        >
+                          {aiLoading ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
+                          {aiLoading ? 'جاري تشغيل التحليل الأول...' : 'تشغيل أول تحليل شامل 🚀'}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs text-text_secondary font-bold max-w-sm leading-relaxed">
+                          لم يتم إعداد مستشار الذكاء الاصطناعي بعد. يرجى إدخال مفتاح API في صفحة الإعدادات لتفعيل التوصيات الذكية والدردشة التفاعلية المدركة لبيانات المتجر.
+                        </p>
+                        <button
+                          onClick={() => { showNav('الإعدادات'); navigate('/settings'); }}
+                          className="flex items-center gap-2 px-5 py-2 bg-background_card border border-border_default hover:border-emerald-400 text-text_primary rounded-xl text-xs font-bold transition-all cursor-pointer"
+                        >
+                          <Settings size={14} className="text-emerald-500" />
+                          <span>تعديل إعدادات الذكاء الاصطناعي ⚙️</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  /* Analysis Present Widget */
+                  <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-hidden">
+                    {/* Health Score Mini Ring */}
+                    <div className="flex items-center gap-3 p-3 bg-emerald-500/5 border border-emerald-500/15 rounded-xl">
+                      <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-xs font-black text-emerald-600">
+                        {aiAnalysis.shop_health_score}%
+                      </div>
+                      <div className="flex-1 min-w-0 text-right">
+                        <span className="block text-xs font-bold text-text_primary">مؤشر الصحة العامة للمتجر</span>
+                        <p className="text-[10px] text-text_secondary truncate font-bold mt-0.5">{aiAnalysis.summary}</p>
+                      </div>
+                    </div>
+
+                    {/* Recommendations list (Top 3) */}
+                    <div className="flex-grow space-y-2.5 overflow-y-auto custom-scrollbar pr-1 pb-2">
+                      {aiAnalysis.recommendations
+                        .sort((a: any, b: any) => {
+                          const priority = { critical: 0, warning: 1, opportunity: 2 };
+                          return (priority[a.type as keyof typeof priority] ?? 2) - (priority[b.type as keyof typeof priority] ?? 2);
+                        })
+                        .slice(0, 3)
+                        .map((rec: any, index: number) => {
+                          const colorClasses = 
+                            rec.type === 'critical' ? 'border-r-danger_red bg-danger_red/[0.03]' :
+                            rec.type === 'warning' ? 'border-r-amber-500 bg-amber-500/[0.03]' :
+                            'border-r-emerald-500 bg-emerald-500/[0.03]';
+                          
+                          const badgeClasses = 
+                            rec.type === 'critical' ? 'text-danger_red bg-danger_red/10 border-danger_red/20' :
+                            rec.type === 'warning' ? 'text-amber-500 bg-amber-500/10 border-amber-500/20' :
+                            'text-emerald-500 bg-emerald-500/10 border-emerald-500/20';
+
+                          const typeLabels = { critical: 'حرج', warning: 'تحذير', opportunity: 'فرصة' };
+                          const recId = rec.id || `rec-${index}`;
+                          const isExpanded = expandedRecId === recId;
+
+                          return (
+                            <div
+                              key={recId}
+                              onClick={() => {
+                                setExpandedRecId(isExpanded ? null : recId);
+                              }}
+                              className={`flex flex-col p-3 rounded-xl border border-border_default/30 border-r-4 transition-all hover:bg-background_primary/50 cursor-pointer ${colorClasses}`}
+                            >
+                              <div className="flex items-center justify-between w-full">
+                                <div className="flex-1 min-w-0 pr-1 text-right">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${badgeClasses}`}>
+                                      {typeLabels[rec.type as keyof typeof typeLabels] || rec.type}
+                                    </span>
+                                    <span className="text-xs font-bold text-text_primary truncate">{rec.title}</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0 mr-2">
+                                  {rec.action_route && !isExpanded && (
+                                    <span className="text-[9px] font-bold text-emerald-500 bg-emerald-500/5 border border-emerald-500/10 px-1 py-0.5 rounded">إجراء</span>
+                                  )}
+                                  {isExpanded ? (
+                                    <ChevronUp size={14} className="text-text_muted" />
+                                  ) : (
+                                    <ChevronDown size={14} className="text-text_muted" />
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Content area */}
+                              <div className="mt-1.5 pr-1 text-right">
+                                {isExpanded ? (
+                                  <div className="space-y-2 mt-1">
+                                    <div className="bg-background_primary/40 rounded-lg p-2.5 border border-border_default/20">
+                                      <span className="block text-[9px] font-bold text-text_secondary mb-1">الاستنتاج:</span>
+                                      <p className="text-[10px] text-text_primary leading-relaxed font-bold">{rec.conclusion}</p>
+                                    </div>
+                                    <div className="bg-emerald-500/[0.02] rounded-lg p-2.5 border border-emerald-500/10">
+                                      <span className="block text-[9px] font-bold text-emerald-500 mb-1">التوصية والنصيحة:</span>
+                                      <p className="text-[10px] text-text_primary leading-relaxed font-medium">{rec.recommendation}</p>
+                                    </div>
+                                    {rec.action_route && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          navigate(rec.action_route);
+                                        }}
+                                        className="w-full flex items-center justify-between mt-2 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-[10px] font-bold transition-all shadow-sm shadow-emerald-500/10"
+                                      >
+                                        <span>الانتقال لصفحة الإجراء المناسب ⚡</span>
+                                        <ChevronLeft size={12} />
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <p className="text-[10px] text-text_secondary leading-relaxed line-clamp-1 font-bold">{rec.conclusion}</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+
+                    {/* Footer controls */}
+                    <div className="pt-2.5 border-t border-border_default flex justify-between items-center shrink-0">
+                      <button
+                        onClick={() => { showNav('مستشار ذكي'); navigate('/consultant'); }}
+                        className="text-xs font-bold text-emerald-500 hover:text-emerald-600 flex items-center gap-1.5 transition-colors"
+                      >
+                        <span>غرفة المستشار والدردشة الكاملة</span>
+                        <ChevronLeft size={12} />
+                      </button>
+
+                      <button
+                        onClick={handleRunAnalysis}
+                        disabled={aiLoading}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-background_card border border-border_default hover:border-emerald-400 rounded-lg text-[10px] font-bold text-text_secondary hover:text-text_primary transition-all disabled:opacity-50"
+                        title="تحديث التحليل"
+                      >
+                        <RefreshCw size={11} className={aiLoading ? 'animate-spin' : ''} />
+                        <span>تحديث</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            ) : (
+              <motion.div
+                key="lowstock-tab"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+                className="flex-1 flex flex-col min-h-0"
+              >
+                {lowStock.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-text_muted gap-2">
+                    <span className="text-4xl">🎉</span>
+                    <p className="text-xs font-bold text-emerald-400">جميع المنتجات فوق حد الأمان. لا توجد أي نواقص في المستودع!</p>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-hidden" dir="rtl">
+                    {/* Glowing Area Chart - Full Height */}
+                    <div 
+                      className="flex-grow w-full bg-background_primary/20 rounded-xl border border-border_default/10 p-2 relative overflow-hidden cursor-pointer" 
+                      title="انقر على أي فئة لتفصيل النواقص"
+                    >
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart 
+                          data={chartData} 
+                          margin={{ top: 10, right: 10, left: -25, bottom: 5 }}
+                          onClick={(state) => {
+                            if (state && state.activeLabel) {
+                              showNav('المخزون المنخفض');
+                              navigate(`/low-stock?category=${encodeURIComponent(state.activeLabel)}`);
+                            }
+                          }}
+                        >
+                          <defs>
+                            <linearGradient id="colorLowStock" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#ea580c" stopOpacity={0.35}/>
+                              <stop offset="95%" stopColor="#ea580c" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border-default) / 0.08)" />
+                          <XAxis dataKey="name" stroke="rgb(var(--text-secondary))" fontSize={9} tickLine={false} />
+                          <YAxis stroke="rgb(var(--text-secondary))" fontSize={9} tickLine={false} allowDecimals={false} />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: 'var(--bg-card)',
+                              borderColor: 'rgb(var(--border-default) / 0.12)',
+                              borderRadius: '12px',
+                              fontSize: '10px',
+                              color: 'rgb(var(--text-primary))',
+                              textAlign: 'right',
+                              direction: 'rtl'
+                            }}
+                            labelStyle={{ fontWeight: 'bold', color: '#ea580c' }}
+                          />
+                          <Area type="monotone" dataKey="count" name="عدد النواقص" stroke="#ea580c" strokeWidth={2} fillOpacity={1} fill="url(#colorLowStock)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Footer navigate all low stock */}
+                    <div className="pt-2.5 border-t border-border_default flex justify-between items-center shrink-0">
+                      <button
+                        onClick={() => { showNav('المخزون المنخفض'); navigate('/low-stock'); }}
+                        className="text-xs font-bold text-warning_amber hover:text-amber-400 flex items-center gap-1.5 transition-colors"
+                      >
+                        <span>عرض جميع النواقص بالتفصيل</span>
+                        <ChevronLeft size={12} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 

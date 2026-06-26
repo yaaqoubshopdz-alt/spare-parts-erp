@@ -2,7 +2,7 @@
  * App.tsx - SparePartsERP
  * بدون فروع، بدون logistics، بدون sync
  */
-import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useEffect, lazy, Suspense, useRef } from 'react';
 import { useAuth } from './hooks/useAuth';
 import MainLayout from './shared/components/layout/MainLayout';
@@ -33,6 +33,7 @@ function PurchaseFormPageWrapper() {
 }
 const SettingsPage = lazy(() => import('./features/settings/SettingsPage'));
 const AccountingPage = lazy(() => import('./features/accounting/AccountingPage'));
+const SmartConsultantPage = lazy(() => import('./features/ai-consultant/SmartConsultantPage'));
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -60,6 +61,7 @@ import { useShortcutStore } from './store/shortcutStore';
 
 export default function App() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { shortcuts } = useShortcutStore();
 
   useEffect(() => {
@@ -223,16 +225,16 @@ export default function App() {
       <QuickUserSwitcherOverlay />
       <Toaster richColors position="top-center" />
       <Suspense fallback={<PageLoader />}>
-        <Routes>
+        <Routes location={location}>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/*" element={
             <ProtectedRoute>
               <Suspense fallback={<PageLoader />}>
-                <Routes>
+                <Routes location={location}>
                   <Route path="*" element={
                     <MainLayout>
                       <Suspense fallback={<PageLoader />}>
-                        <Routes>
+                        <Routes location={location}>
                           <Route path="/" element={<DashboardPage />} />
                           <Route path="/dashboard" element={<DashboardPage />} />
                           <Route path="/pos" element={<POSPage />} />
@@ -245,6 +247,7 @@ export default function App() {
                           <Route path="/purchases/new" element={<PurchaseFormPageWrapper />} />
                           <Route path="/purchases/:id" element={<PurchaseFormPageWrapper />} />
                           <Route path="/expenses" element={<ExpensesPage />} />
+                          <Route path="/consultant" element={<SmartConsultantPage />} />
                           <Route path="/accounting" element={<AccountingPage />} />
                           <Route path="/settings" element={<SettingsPage />} />
                           {/* باقي الصفحات ستُضاف تدريجياً */}

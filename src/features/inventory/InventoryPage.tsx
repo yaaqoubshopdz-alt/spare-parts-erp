@@ -12,6 +12,15 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { Search, Edit, Trash2, Filter, AlertTriangle, ClipboardList } from 'lucide-react';
+
+/** Returns true if the unit name represents a bulk/weight/volume unit (kg, ltr, meter…) */
+function isBulkUnit(unitName?: string): boolean {
+  if (!unitName) return false;
+  const u = unitName.trim().toLowerCase();
+  return u.includes('كيلو') || u.includes('كغ') || u.includes('kg') ||
+         u.includes('لتر') || u.includes('ltr') || u === 'l' ||
+         u.includes('متر') || u === 'm' || u.includes('غرام') || u === 'g';
+}
 import ToolbarButton from '../../shared/components/ui/ToolbarButton';
 import { useShortcutStore } from '../../store/shortcutStore';
 import ERPTable, { useColumnManager } from '../../shared/components/table';
@@ -206,12 +215,18 @@ export default function InventoryPage() {
       flex: 1,
       resizable: true,
       draggable: true,
-      render: (p: Product) => (
-        <div className="flex flex-col" dir="auto">
-          <span className="font-bold text-text_primary">{p.name}</span>
-          {p.name_fr && <span className="text-xs text-text_muted font-sans block" dir="ltr">{p.name_fr}</span>}
-        </div>
-      ),
+      render: (p: Product) => {
+        const primaryName = p.name_fr || p.name;
+        const secondaryName = (p.name_fr && p.name_fr !== p.name) ? p.name : null;
+        return (
+          <div className="flex flex-col justify-center leading-snug" dir="auto">
+            <span className="font-bold text-[13px] text-text_primary truncate" dir="ltr">{primaryName}</span>
+            {secondaryName && (
+              <span className="text-[10px] text-text_muted/60 font-medium truncate">{secondaryName}</span>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'category_name',
@@ -238,7 +253,10 @@ export default function InventoryPage() {
       resizable: true,
       draggable: true,
       render: (p: Product) => {
-        const price = p.has_sub_unit ? (p.purchase_price * p.pieces_per_box) : p.purchase_price;
+        // Show box price only if product has sub-units (علبة) or is a bulk unit (kg/ltr/meter)
+        const showBox = p.has_sub_unit || isBulkUnit(p.unit_name);
+        if (!showBox) return <span className="font-bold text-text_muted/50">-</span>;
+        const price = p.has_sub_unit ? (p.purchase_price * (p.pieces_per_box || 1)) : p.purchase_price;
         return (
           <span className="font-bold font-numbers text-warning_amber">
             {price.toFixed(2)} د.ج
@@ -254,10 +272,13 @@ export default function InventoryPage() {
       resizable: true,
       draggable: true,
       render: (p: Product) => {
-        const price = p.has_sub_unit ? p.purchase_price : null;
+        // For pure bulk units without sub-unit packaging, piece price doesn't apply
+        const isBulk = isBulkUnit(p.unit_name) && !p.has_sub_unit;
+        if (isBulk) return <span className="font-bold text-text_muted/50">-</span>;
+        const price = p.purchase_price;
         return (
           <span className="font-bold font-numbers text-warning_amber/80">
-            {price !== null ? `${price.toFixed(2)} د.ج` : '-'}
+            {price.toFixed(2)} د.ج
           </span>
         );
       },
@@ -270,10 +291,11 @@ export default function InventoryPage() {
       resizable: true,
       draggable: true,
       render: (p: Product) => {
-        const price = p.wholesale_price;
+        const showBox = p.has_sub_unit || isBulkUnit(p.unit_name);
+        if (!showBox) return <span className="font-bold text-text_muted/50">-</span>;
         return (
           <span className="font-bold font-numbers text-success_green">
-            {price.toFixed(2)} د.ج
+            {(p.wholesale_price || 0).toFixed(2)} د.ج
           </span>
         );
       },
@@ -286,10 +308,11 @@ export default function InventoryPage() {
       resizable: true,
       draggable: true,
       render: (p: Product) => {
-        const price = p.retail_price;
+        const isBulk = isBulkUnit(p.unit_name) && !p.has_sub_unit;
+        if (isBulk) return <span className="font-bold text-text_muted/50">-</span>;
         return (
           <span className="font-bold font-numbers text-success_green/80">
-            {price.toFixed(2)} د.ج
+            {(p.retail_price || 0).toFixed(2)} د.ج
           </span>
         );
       },

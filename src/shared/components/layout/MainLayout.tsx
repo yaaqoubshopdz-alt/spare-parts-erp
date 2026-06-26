@@ -27,6 +27,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const { direction, sidebarCollapsed, toggleSidebar } = useAppStore();
 
   useEffect(() => {
+    const isPosCreator = location.pathname === '/pos' && !new URLSearchParams(location.search).has('invoiceId');
+    if (!isPosCreator) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.repeat) return;
       // Ctrl + Alt combination (using code and key for layout compatibility)
@@ -50,11 +53,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [location.pathname, location.search]);
   
   const isOpen = !sidebarCollapsed;
   const collapsedWidth = 64;
   const spacerWidth = collapsedWidth;
+
+  const isPosCreator = location.pathname === '/pos' && !new URLSearchParams(location.search).has('invoiceId');
 
   return (
     <div
@@ -105,7 +110,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
         </main>
       </div>
       {/* Global Workspace Switcher Overlay */}
-      <WorkspaceSwitcher />
+      {isPosCreator && <WorkspaceSwitcher />}
     </div>
   );
 }

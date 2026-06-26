@@ -72,8 +72,8 @@ export const AccountingEngine = {
     const originalEntry = raw.prepare("SELECT id FROM journal_entries WHERE reference_type = 'sales_invoice' AND reference_id = ?").get(data.invoiceId);
     let originalTotal = data.oldTotal; // fallback
     if (originalEntry) {
-      const line = raw.prepare("SELECT credit FROM journal_entry_lines WHERE entry_id = ? AND account_id = ?").get(originalEntry.id, this.ACCOUNTS.REVENUE);
-      if (line) originalTotal = line.credit;
+      const line = raw.prepare("SELECT credit, debit FROM journal_entry_lines WHERE entry_id = ? AND account_id = ?").get(originalEntry.id, this.ACCOUNTS.REVENUE);
+      if (line) originalTotal = line.credit - line.debit;
     }
 
     const diff = data.newTotal - originalTotal;
@@ -107,8 +107,8 @@ export const AccountingEngine = {
     const originalEntry = raw.prepare("SELECT id FROM journal_entries WHERE reference_type = 'purchase_invoice' AND reference_id = ?").get(data.invoiceId);
     let originalTotal = data.oldTotal; // fallback
     if (originalEntry) {
-      const line = raw.prepare("SELECT debit FROM journal_entry_lines WHERE entry_id = ? AND account_id = ?").get(originalEntry.id, this.ACCOUNTS.INVENTORY);
-      if (line) originalTotal = line.debit;
+      const line = raw.prepare("SELECT debit, credit FROM journal_entry_lines WHERE entry_id = ? AND account_id = ?").get(originalEntry.id, this.ACCOUNTS.INVENTORY);
+      if (line) originalTotal = line.debit - line.credit;
     }
 
     const diff = data.newTotal - originalTotal;
@@ -133,24 +133,40 @@ export const AccountingEngine = {
     this._initAccounts(raw);
     this._checkClosingDate(raw, invoice.date);
     const lines: any[] = [
-      { account_id: this.ACCOUNTS.REVENUE, debit: 0, credit: invoice.total }
+      {
+        account_id: this.ACCOUNTS.REVENUE,
+        debit: invoice.total < 0 ? Math.abs(invoice.total) : 0,
+        credit: invoice.total > 0 ? invoice.total : 0
+      }
     ];
-    if (invoice.paid > 0) {
-      lines.push({ account_id: this.ACCOUNTS.CASH, debit: invoice.paid, credit: 0 });
+    if (invoice.paid !== 0) {
+      lines.push({
+        account_id: this.ACCOUNTS.CASH,
+        debit: invoice.paid > 0 ? invoice.paid : 0,
+        credit: invoice.paid < 0 ? Math.abs(invoice.paid) : 0
+      });
     }
-    if (invoice.remaining > 0) {
+    if (invoice.remaining !== 0) {
       lines.push({ 
         account_id: this.ACCOUNTS.AR, 
-        debit: invoice.remaining, 
-        credit: 0,
+        debit: invoice.remaining > 0 ? invoice.remaining : 0,
+        credit: invoice.remaining < 0 ? Math.abs(invoice.remaining) : 0,
         party_type: 'customer',
         party_id: invoice.customer_id
       });
     }
-    if (invoice.cogs > 0) {
+    if (invoice.cogs !== 0) {
       lines.push(
-        { account_id: this.ACCOUNTS.COGS, debit: invoice.cogs, credit: 0 },
-        { account_id: this.ACCOUNTS.INVENTORY, debit: 0, credit: invoice.cogs }
+        {
+          account_id: this.ACCOUNTS.COGS,
+          debit: invoice.cogs > 0 ? invoice.cogs : 0,
+          credit: invoice.cogs < 0 ? Math.abs(invoice.cogs) : 0
+        },
+        {
+          account_id: this.ACCOUNTS.INVENTORY,
+          debit: invoice.cogs < 0 ? Math.abs(invoice.cogs) : 0,
+          credit: invoice.cogs > 0 ? invoice.cogs : 0
+        }
       );
     }
     this.createJournalEntry(raw, {

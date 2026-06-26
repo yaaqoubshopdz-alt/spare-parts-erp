@@ -215,7 +215,7 @@ export function startHttpServer(port: number): void {
         if (!query.trim()) {
           // Fetch recently added products
           results = rawDb.prepare(`
-            SELECT p.id, p.name, p.barcode, p.retail_price as price, COALESCE(SUM(sb.quantity), 0) as quantity
+            SELECT p.id, p.name, p.name_fr, p.barcode, p.retail_price as price, COALESCE(SUM(sb.quantity), 0) as quantity
             FROM products p
             LEFT JOIN stock_balances sb ON p.id = sb.product_id
             GROUP BY p.id
@@ -225,15 +225,16 @@ export function startHttpServer(port: number): void {
         } else {
           const searchVal = `%${query}%`;
           results = rawDb.prepare(`
-            SELECT p.id, p.name, p.barcode, p.retail_price as price, COALESCE(SUM(sb.quantity), 0) as quantity
+            SELECT p.id, p.name, p.name_fr, p.barcode, p.retail_price as price, COALESCE(SUM(sb.quantity), 0) as quantity
             FROM products p
             LEFT JOIN stock_balances sb ON p.id = sb.product_id
             WHERE p.name LIKE ? 
+               OR p.name_fr LIKE ?
                OR p.barcode = ? 
                OR p.id IN (SELECT product_id FROM product_barcodes WHERE barcode = ?)
             GROUP BY p.id
             LIMIT 30
-          `).all(searchVal, query, query);
+          `).all(searchVal, searchVal, query, query);
         }
 
         res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json; charset=utf-8' });

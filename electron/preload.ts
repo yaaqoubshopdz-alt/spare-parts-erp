@@ -8,7 +8,7 @@ const ALLOWED_INVOKE_CHANNELS = [
   // Auth
   'auth:login', 'auth:logout', 'auth:checkSession', 'auth:changePassword', 'auth:loginByPin', 'auth:verifyPin', 'auth:loginDirect', 'auth:verifyPassword',
   // Products
-  'db:products:getAll', 'db:products:search', 'db:products:create', 'db:products:update', 'db:products:delete', 'db:products:getById', 'db:products:getByBarcodeOrCode', 'db:products:recordUsage', 'db:products:suggest', 'db:products:getImages', 'db:products:deleteImage',
+  'db:products:getAll', 'db:products:search', 'db:products:create', 'db:products:update', 'db:products:delete', 'db:products:getById', 'db:products:getByBarcodeOrCode', 'db:products:recordUsage', 'db:products:suggest', 'db:products:getImages', 'db:products:deleteImage', 'db:products:bulkHideZeroStock', 'db:products:bulkDeleteZeroStock',
   // Product Barcodes
   'db:barcodes:getByProduct', 'db:barcodes:create', 'db:barcodes:delete',
   // Categories
@@ -81,6 +81,8 @@ const ALLOWED_INVOKE_CHANNELS = [
   'mobile:get-server-info', 'mobile:get-status', 'mobile:get-pending-photos', 'mobile:request-photo', 'mobile:get-invoice-queue', 'mobile:mark-invoice-processed',
   // OTA Update
   'ota:check',
+  // AI
+  'ai:getConfig', 'ai:saveConfig', 'ai:testConnection', 'ai:getHistory', 'ai:clearHistory', 'ai:saveHistory', 'ai:chat', 'ai:analyze', 'ai:exportContext', 'ai:getLastAnalysis', 'ai:saveManualAnalysis', 'ai:parseInvoiceImage', 'ai:extractFitments', 'ai:autoAddFitments', 'ai:fitmentChat', 'ai:smartSearch', 'ai:checkProductsCompatibility', 'ai:director:analyze', 'ai:director:generate',
 ];
 
 contextBridge.exposeInMainWorld('electronAPI', {

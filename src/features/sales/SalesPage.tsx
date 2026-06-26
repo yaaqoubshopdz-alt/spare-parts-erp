@@ -227,18 +227,6 @@ export default function SalesPage() {
                 حذف الكل
               </button>
             )}
-
-            {hasPermission('create_sales') && (
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={toggleSwitcher}
-                  className="w-14 h-14 flex items-center justify-center bg-background_card border-2 border-border_default text-text_muted hover:text-primary_blue hover:border-primary_blue/50 rounded-xl transition-all"
-                  title="مساحات العمل"
-                >
-                  <Layers size={22} />
-                </button>
-              </div>
-            )}
           </div>
         </div>
 

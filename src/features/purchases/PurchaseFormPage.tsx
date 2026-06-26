@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useReactToPrint } from 'react-to-print';
 import {
   Search, Trash2, Printer, Save, CheckCircle, Plus, Copy,
-  User, FolderOpen, Calendar, XCircle, FileText, X, Package, EyeOff, Eye, Hash, Car, Edit2, Sparkles, Barcode, Image as ImageIcon
+  User, FolderOpen, Calendar, XCircle, FileText, X, Package, EyeOff, Eye, Hash, Car, Edit2, Sparkles, Barcode, Image as ImageIcon, RefreshCw
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { roundTo2 } from '../../utils/calculations';
@@ -91,6 +91,34 @@ function normalizeArabic(str: string): string {
     .replace(/ى/g, 'ي')
     .replace(/[^a-z0-9\u0621-\u064A]/gi, '');
 }
+
+function isBulkUnit(unitName?: string): boolean {
+  if (!unitName) return false;
+  const u = unitName.trim().toLowerCase();
+  return u.includes('كيلو') || u.includes('كغ') || u.includes('kg') || 
+         u.includes('لتر') || u.includes('ltr') || u === 'l' ||
+         u.includes('متر') || u === 'm' || u.includes('غرام') || u === 'g';
+}
+
+function isBoxUnit(unit?: string, mainUnitName?: string): boolean {
+  if (!unit) return false;
+  const u = unit.trim().toLowerCase();
+  if (['قطعة', 'قطعه', 'حبة', 'حبه', 'pcs', 'pc'].includes(u)) {
+    return false;
+  }
+  if (u === 'علبة' || u === 'علبه') {
+    return true;
+  }
+  if (mainUnitName) {
+    const main = mainUnitName.trim().toLowerCase();
+    if (u === main) {
+      return true;
+    }
+  }
+  return true;
+}
+
+
 
 function getLevenshteinDistance(a: string, b: string): number {
   const tmp: number[][] = [];
@@ -517,6 +545,8 @@ export default function PurchaseFormPage() {
   const [rowContextMenu, setRowContextMenu] = useState<{ x: number; y: number; item: PurchaseItem } | null>(null);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [photoModalProduct, setPhotoModalProduct] = useState<{ id: number; name: string; barcode?: string } | null>(null);
+  const [aiFitmentsLoading, setAiFitmentsLoading] = useState(false);
+  const [aiFitmentsResult, setAiFitmentsResult] = useState<{ added: number; reasoning: string; confidence: number } | null>(null);
 
   useEffect(() => {
     const close = () => setRowContextMenu(null);
@@ -546,6 +576,13 @@ export default function PurchaseFormPage() {
   const [isReconciling, setIsReconciling] = useState(false);
   const [invoiceQueue, setInvoiceQueue] = useState<any[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+  const [selectedLocalImage, setSelectedLocalImage] = useState<{ localBase64: string; mimeType: string; fileName: string; previewUrl: string } | null>(null);
+  const [aiMode, setAiMode] = useState<'automatic' | 'manual'>('manual');
+  const [aiHasKey, setAiHasKey] = useState<boolean>(false);
+  const [isOcrLoading, setIsOcrLoading] = useState(false);
+  const localFileInputRef = useRef<HTMLInputElement>(null);
+  
+  const isAiActive = aiMode === 'automatic' || aiHasKey;
 
   const loadInvoiceQueue = useCallback(async () => {
     if (!window.electronAPI) return;
@@ -575,6 +612,88 @@ export default function PurchaseFormPage() {
       loadInvoiceQueue();
     }
   }, [searchParams, loadInvoiceQueue]);
+
+  // Load AI config when import modal opens
+  useEffect(() => {
+    if (window.electronAPI && showSmartImportModal) {
+      window.electronAPI.invoke('ai:getConfig').then((cfgRes: any) => {
+        if (cfgRes.success && cfgRes.data) {
+          setAiMode(cfgRes.data.mode || 'manual');
+          setAiHasKey(cfgRes.data.hasKey || false);
+        }
+      }).catch(err => console.error('Error loading AI config:', err));
+    }
+  }, [showSmartImportModal]);
+
+  const handleLocalImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      const previewUrl = reader.result as string;
+      setSelectedLocalImage({
+        localBase64: base64,
+        mimeType: file.type,
+        fileName: file.name,
+        previewUrl
+      });
+      // Deselect phone invoice
+      setSelectedInvoice(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDirectOCR = async () => {
+    let base64Image = '';
+    let mimeType = '';
+
+    if (selectedLocalImage) {
+      base64Image = selectedLocalImage.localBase64;
+      mimeType = selectedLocalImage.mimeType;
+    } else if (selectedInvoice) {
+      setIsOcrLoading(true);
+      try {
+        const imgUrl = `http://localhost:8766/invoices/${selectedInvoice.filePath}`;
+        const response = await fetch(imgUrl);
+        const blob = await response.blob();
+        
+        base64Image = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const result = reader.result as string;
+            resolve(result.split(',')[1]);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        mimeType = blob.type;
+      } catch (err: any) {
+        setIsOcrLoading(false);
+        showNotification('error', `فشل تحميل صورة الفاتورة: ${err.message}`);
+        return;
+      }
+    } else {
+      showNotification('error', 'الرجاء اختيار أو رفع صورة فاتورة أولاً');
+      return;
+    }
+
+    setIsOcrLoading(true);
+    try {
+      const res = await window.electronAPI.invoke('ai:parseInvoiceImage', { base64Image, mimeType });
+      if (res.success && res.data) {
+        await handleAnalyzeJson(JSON.stringify(res.data));
+        setShowSmartImportModal(false);
+        setSelectedLocalImage(null);
+      } else {
+        showNotification('error', res.error || 'فشل قراءة الفاتورة بالذكاء الاصطناعي');
+      }
+    } catch (err: any) {
+      showNotification('error', err.message || 'حدث خطأ أثناء الاتصال بالذكاء الاصطناعي');
+    } finally {
+      setIsOcrLoading(false);
+    }
+  };
 
   // ── Jard Mode States ──
   const [isJardMode, setIsJardMode] = useState(false);
@@ -739,7 +858,15 @@ export default function PurchaseFormPage() {
         setSupplierBalance(inv.supplier_balance || 0);
         setPaidAmount(inv.paid || 0);
         setNotes(inv.notes || '');
-        setItems(inv.items || []);
+        const mappedItems = (inv.items || []).map((item: any) => {
+          const isDraftProd = item.product_is_active === 0;
+          return {
+            ...item,
+            isNewProduct: item.isNewProduct || isDraftProd,
+            needs_review: item.needs_review || isDraftProd
+          };
+        });
+        setItems(mappedItems);
         setIsCancelled(inv.status === 'cancelled');
         setInvoiceStatus(inv.status);
         setCustomDate(inv.date || null);
@@ -827,8 +954,8 @@ Here is the JSON schema to output:
       "category_suggestion": "The category classification suggested for this item in Arabic. You MUST choose exactly from this list of categories: ${categoryNames || 'فلاتر, زيوت ومواد التشحيم, فرامل, كهرباء السيارة, محرك, تعليق وتوجيه, إطارات وعجلات, إكسسوارات'}",
       "unit_suggestion": "The unit of measurement suggested (choose from: Piece, Litre, Box)",
       "packaging": {
-        "is_box": false, // Set to true if the item name, description, or row indicates it is bought in bulk/box/carton (e.g., 'Carton 12', 'Box 24', 'Pack 6')
-        "box_size": 1, // If is_box is true, extract the number of pieces inside the box (e.g., 12 for 'Carton 12'). Otherwise, 1
+        "is_box": false, // Set to true ONLY if the item name, description, or row indicates it is bought in a bulk/box/carton containing multiple individual sellable items (e.g., 'Carton 12', 'Box 24', 'Pack 6'). Do NOT set to true for kits, sets, or pairs that are sold together as a single kit (e.g., 'KIT EMBRIAGE', 'JEU PISTONS', or pairs of brake pads/control arms like 'BRAS DE FORCE (2PCS)' or 'PLAQUETTE DE FREIN (4PCS)' if they are sold to the final customer as a single set/kit).
+        "box_size": 1, // If is_box is true, extract the number of pieces inside the box. Otherwise, 1
         "box_name": "Name of the packaging unit (e.g., 'Carton', 'Box', 'Pack') or null"
       },
       "brand_suggestion": "Brand name suggestion of the spare part (e.g., Purflux, Brembo, Valeo, Bosch, Sachs, Monroe) if visible or inferred",
@@ -848,7 +975,9 @@ Strict Rules:
 2. If buying price or quantity is missing, use 0 for price and 1 for quantity.
 3. If no barcode, OEM reference, or SKU is found on the row, set "sku" to null.
 4. Extract the product names exactly as written in French, preserving all letters, numbers, and specifications.
-5. Pay close attention to packaging keywords (Carton, Box, Pack, Lot) to extract packaging information accurately. If unsure, set "needs_review" to true.`;
+5. Pay close attention to packaging keywords (Carton, Box, Pack, Lot) to extract packaging information accurately. If unsure, set "needs_review" to true.
+6. Verify and calculate the totals to ensure mathematical consistency.
+7. Do NOT split kits, sets, or pairs that are sold together as a single pack/kit. If the product name contains '(2PCS)' or '(4PCS)' but it represents a kit or set of parts that must be sold together (such as a kit of control arms, set of brake pads, or kit of pistons), treat them as a single item (set is_box to false and box_size to 1).`;
 
   const handleCopyPrompt = () => {
     navigator.clipboard.writeText(promptText);
@@ -898,6 +1027,83 @@ Strict Rules:
     }
   };
 
+  const cleanAndParseJSON = (rawStr: string): any => {
+    let str = rawStr.trim();
+    try {
+      return JSON.parse(str);
+    } catch (e) {
+      const markdownMatch = str.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (markdownMatch) {
+        str = markdownMatch[1].trim();
+        try {
+          return JSON.parse(str);
+        } catch (e2) {}
+      }
+
+      const firstBrace = str.indexOf('{');
+      const lastBrace = str.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        str = str.substring(firstBrace, lastBrace + 1);
+      }
+
+      try {
+        return JSON.parse(str);
+      } catch (e3: any) {
+        try {
+          const cleaned = repairJSONString(str);
+          return JSON.parse(cleaned);
+        } catch (e4) {
+          throw new Error(`JSON parsing failed: ${e3.message}`);
+        }
+      }
+    }
+  };
+
+  const repairJSONString = (jsonStr: string): string => {
+    let inString = false;
+    let escaped = false;
+    let result = '';
+
+    for (let i = 0; i < jsonStr.length; i++) {
+      const char = jsonStr[i];
+
+      if (escaped) {
+        result += char;
+        escaped = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        result += char;
+        escaped = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        result += char;
+        continue;
+      }
+
+      if (inString) {
+        if (char === '\n') {
+          result += '\\n';
+        } else if (char === '\r') {
+          result += '\\r';
+        } else if (char === '\t') {
+          result += '\\t';
+        } else {
+          result += char;
+        }
+      } else {
+        result += char;
+      }
+    }
+
+    result = result.replace(/,\s*([}\]])/g, '$1');
+    return result;
+  };
+
   const handleAnalyzeJson = async (overrideJson?: string) => {
     const textToAnalyze = overrideJson || importJsonText;
     if (!textToAnalyze.trim()) {
@@ -906,22 +1112,7 @@ Strict Rules:
     }
     setIsReconciling(true);
     try {
-      let cleanedJson = textToAnalyze.trim();
-      if (cleanedJson.includes('```')) {
-        const matches = cleanedJson.match(/```(?:json)?([\s\S]+?)```/);
-        if (matches && matches[1]) {
-          cleanedJson = matches[1].trim();
-        }
-      }
-      
-      // Extract from the first '{' to the last '}' to strip any external text
-      const firstBrace = cleanedJson.indexOf('{');
-      const lastBrace = cleanedJson.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        cleanedJson = cleanedJson.substring(firstBrace, lastBrace + 1);
-      }
-      
-      const parsed = JSON.parse(cleanedJson);
+      const parsed = cleanAndParseJSON(textToAnalyze);
       if (!parsed.items || !Array.isArray(parsed.items)) {
         throw new Error('الـ JSON لا يحتوي على قائمة المنتجات items');
       }
@@ -1056,9 +1247,10 @@ Strict Rules:
         let productBarcode: string | null = item.sku;
         let categoryId = 1;
         let unitId = 1;
-        let brandId = 1;
+        let brandId: number | undefined = undefined;
         let isNewProduct = true;
         let needsReview = item.needs_review !== undefined ? item.needs_review : false;
+        let dbProduct: any = null;
 
         const skuStr = item.sku ? item.sku.toString().trim() : '';
         if (skuStr) {
@@ -1069,8 +1261,9 @@ Strict Rules:
             productBarcode = barcodeRes.data.barcode || barcodeRes.data.internal_code;
             categoryId = barcodeRes.data.category_id || 1;
             unitId = barcodeRes.data.unit_id || 1;
-            brandId = barcodeRes.data.brand_id || 1;
+            brandId = barcodeRes.data.brand_id || undefined;
             isNewProduct = false;
+            dbProduct = barcodeRes.data;
           }
         }
 
@@ -1084,8 +1277,9 @@ Strict Rules:
             productBarcode = bestMatch.barcode || bestMatch.internal_code;
             categoryId = bestMatch.category_id || 1;
             unitId = bestMatch.unit_id || 1;
-            brandId = bestMatch.brand_id || 1;
+            brandId = bestMatch.brand_id || undefined;
             isNewProduct = false;
+            dbProduct = bestMatch;
           }
         }
 
@@ -1150,12 +1344,52 @@ Strict Rules:
           if (b) brandId = b.id;
         }
 
-        const purchasePrice = item.purchase_price || 0;
-        const retailMargin = 30;
-        const retailPrice = Math.round(purchasePrice * (1 + retailMargin / 100));
-        const wholesalePrice = Math.round(purchasePrice * 1.2);
+        const dbHasSubUnit = dbProduct ? (dbProduct.has_sub_unit === 1 || dbProduct.has_sub_unit === true || dbProduct.has_sub_unit === 'true' || dbProduct.has_sub_unit === '1') : false;
+        const dbPiecesPerBox = dbProduct ? (dbProduct.pieces_per_box || 1) : 1;
+        const dbUnitName = dbProduct ? (dbProduct.unit_name || dbProduct.unit || 'قطعة') : 'قطعة';
 
+        const finalHasSubUnit = isNewProduct ? (!!item.packaging?.is_box) : dbHasSubUnit;
+        const finalPiecesPerBox = isNewProduct ? (item.packaging?.box_size || 1) : dbPiecesPerBox;
+        const finalUnitName = isNewProduct 
+          ? (item.packaging?.is_box ? 'علبة' : (units.find(u => u.id === unitId)?.name || 'قطعة')) 
+          : dbUnitName;
+
+        const defaultUnit = finalHasSubUnit 
+          ? (finalUnitName && !['قطعة', 'حبة', 'قطعه', 'حبه'].includes(finalUnitName) ? finalUnitName : 'علبة') 
+          : finalUnitName;
+
+        const aiIsBox = !!item.packaging?.is_box;
         const qtyVal = item.qty || item.quantity || 1;
+        const purchasePrice = item.purchase_price || 0;
+
+        let finalQty = qtyVal;
+        let finalUnitPrice = purchasePrice;
+
+        if (finalHasSubUnit) {
+          if (!aiIsBox) {
+            // AI parsed as pieces, but the product defaults to box unit. Convert pieces to boxes.
+            finalQty = qtyVal / finalPiecesPerBox;
+            finalUnitPrice = purchasePrice * finalPiecesPerBox;
+          } else {
+            // AI parsed as boxes, no conversion needed.
+            finalQty = qtyVal;
+            finalUnitPrice = purchasePrice;
+          }
+        }
+
+        const piecePurchasePrice = finalHasSubUnit ? (finalUnitPrice / finalPiecesPerBox) : finalUnitPrice;
+
+        const retailMargin = (!isNewProduct && dbProduct && dbProduct.purchase_price > 0 && dbProduct.retail_price > 0)
+          ? Math.round(((dbProduct.retail_price / dbProduct.purchase_price) - 1) * 100)
+          : 30;
+
+        const retailPrice = isNewProduct 
+          ? Math.round(piecePurchasePrice * (1 + retailMargin / 100))
+          : (dbProduct.retail_price || 0);
+
+        const wholesalePrice = isNewProduct
+          ? Math.round(piecePurchasePrice * 1.2 * finalPiecesPerBox)
+          : (dbProduct.wholesale_price || 0);
 
         finalItems.push({
           id: `pi-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
@@ -1164,10 +1398,10 @@ Strict Rules:
           product_barcode_snapshot: productBarcode,
           product_name: productName,
           product_name_fr: productNameFr,
-          quantity: qtyVal,
-          unit: item.packaging?.is_box ? 'علبة' : (units.find(u => u.id === unitId)?.name || 'قطعة'),
-          unit_price: purchasePrice,
-          total: roundTo2(purchasePrice * qtyVal),
+          quantity: finalQty,
+          unit: defaultUnit,
+          unit_price: finalUnitPrice,
+          total: roundTo2(finalUnitPrice * finalQty),
           wholesale_price: wholesalePrice,
           retail_price: retailPrice,
           retail_margin: retailMargin,
@@ -1178,8 +1412,9 @@ Strict Rules:
           inventory_check: false,
           isNewProduct: isNewProduct,
           needs_review: needsReview,
-          has_sub_unit: item.packaging?.is_box || false,
-          pieces_per_box: item.packaging?.box_size || 1,
+          has_sub_unit: finalHasSubUnit,
+          pieces_per_box: finalPiecesPerBox,
+          unit_name: finalUnitName,
           compatibility_suggestions: item.compatibility_suggestions || []
         });
       }
@@ -1232,7 +1467,7 @@ Strict Rules:
     const piecesPerBox = p.pieces_per_box || 1;
     const unitName = p.unit_name || p.unit || 'قطعة';
 
-    const defaultUnit = hasSubUnit ? 'علبة' : unitName;
+    const defaultUnit = hasSubUnit ? (unitName && !['قطعة', 'حبة', 'قطعه', 'حبه'].includes(unitName) ? unitName : 'علبة') : unitName;
     const defaultUnitPrice = hasSubUnit ? (p.purchase_price * piecesPerBox) : p.purchase_price;
 
     const existing = items.find(i => i.product_id === p.id);
@@ -1304,7 +1539,8 @@ Strict Rules:
       }
       
       const pieces = u.pieces_per_box || 1;
-      const piecePurchase = (u.has_sub_unit && u.unit === 'علبة') ? (Number(u.unit_price) / pieces) : Number(u.unit_price);
+      const isBox = isBoxUnit(u.unit, u.unit_name);
+      const piecePurchase = (u.has_sub_unit && isBox) ? (Number(u.unit_price) / pieces) : Number(u.unit_price);
       
       if (field === 'unit_price' && u.retail_margin) {
          u.retail_price = Math.round(piecePurchase * (1 + Number(u.retail_margin) / 100));
@@ -1325,10 +1561,13 @@ Strict Rules:
       let newPrice = item.unit_price;
       let newQty = item.quantity;
       
-      if (newUnit === 'علبة' && item.unit !== 'علبة') {
+      const wasBox = isBoxUnit(item.unit, item.unit_name);
+      const isBox = isBoxUnit(newUnit, item.unit_name);
+      
+      if (isBox && !wasBox) {
         newPrice = item.unit_price * pieces;
         newQty = item.quantity / pieces;
-      } else if (newUnit !== 'علبة' && item.unit === 'علبة') {
+      } else if (!isBox && wasBox) {
         newPrice = item.unit_price / pieces;
         newQty = item.quantity * pieces;
       }
@@ -1341,7 +1580,7 @@ Strict Rules:
         total: roundTo2(newPrice * newQty)
       };
 
-      const piecePurchase = newUnit === 'علبة' ? (newPrice / pieces) : newPrice;
+      const piecePurchase = isBox ? (newPrice / pieces) : newPrice;
       if (updated.retail_price > 0) {
         updated.retail_margin = piecePurchase > 0 ? Math.round(((updated.retail_price / piecePurchase) - 1) * 100) : 30;
       }
@@ -1407,7 +1646,9 @@ Strict Rules:
       if (matchedModel) {
         resolved.push({
           vehicle_brand_id: matchedModel.vehicle_brand_id,
-          vehicle_model_id: matchedModel.id
+          vehicle_model_id: matchedModel.id,
+          vehicle_brand_name: matchedModel.brand_name || '',
+          vehicle_model_name: matchedModel.name || ''
         });
       } else {
         // 2. Parse and create using parseAndCreate
@@ -1416,7 +1657,9 @@ Strict Rules:
           if (fitRes.success && fitRes.data) {
             resolved.push({
               vehicle_brand_id: fitRes.data.vehicle_brand_id,
-              vehicle_model_id: fitRes.data.vehicle_model_id
+              vehicle_model_id: fitRes.data.vehicle_model_id,
+              vehicle_brand_name: fitRes.data.vehicle_brand_name || '',
+              vehicle_model_name: fitRes.data.vehicle_model_name || ''
             });
           }
         } catch {}
@@ -1426,16 +1669,20 @@ Strict Rules:
   };
 
   // Helper to create all pending products before saving the invoice
-  const createPendingProducts = async (currentItems: PurchaseItem[]): Promise<PurchaseItem[]> => {
+  const createPendingProducts = async (currentItems: PurchaseItem[], isDraft: boolean = false): Promise<PurchaseItem[]> => {
     const api = window.electronAPI;
     if (!api) return currentItems;
 
     const resolvedItems = [...currentItems];
     for (let i = 0; i < resolvedItems.length; i++) {
       const item = resolvedItems[i];
-      if (item.isNewProduct || item.product_id <= 0) {
+      if (item.product_id <= 0) {
         // Resolve fitments
         const fitments = await resolveFitments(item.compatibility_suggestions || []);
+
+        const selectedUnitName = units.find(u => u.id === (item.unit_id || 1))?.name;
+        const showBox = item.has_sub_unit || isBulkUnit(selectedUnitName || item.unit);
+        const showPiece = item.has_sub_unit || !isBulkUnit(selectedUnitName || item.unit);
 
         const newProductData = {
           name: item.product_name || item.product_name_snapshot,
@@ -1443,14 +1690,15 @@ Strict Rules:
           barcode: item.product_barcode_snapshot || undefined,
           internal_code: item.product_barcode_snapshot ? undefined : `INT-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*1000)}`,
           category_id: item.category_id || 1,
-          brand_id: item.brand_id || 1,
+          brand_id: item.brand_id || null,
           unit_id: item.unit_id || 1,
           purchase_price: item.unit_price,
-          retail_price: item.retail_price,
-          wholesale_price: item.wholesale_price,
+          retail_price: showPiece ? item.retail_price : 0,
+          wholesale_price: showBox ? item.wholesale_price : 0,
           initial_stock: 0,
           has_sub_unit: item.has_sub_unit || false,
           pieces_per_box: item.pieces_per_box || 1,
+          is_active: !isDraft,
           fitments
         };
 
@@ -1480,7 +1728,7 @@ Strict Rules:
       if (!api) return false;
 
       // Resolve pending products first
-      const resolvedItems = await createPendingProducts(items);
+      const resolvedItems = await createPendingProducts(items, true);
       setItems(resolvedItems);
 
       const invoice = {
@@ -1585,7 +1833,7 @@ Strict Rules:
       // Resolve pending products first
       let resolvedItems = items;
       try {
-        resolvedItems = await createPendingProducts(items);
+        resolvedItems = await createPendingProducts(items, false);
         setItems(resolvedItems);
       } catch (err: any) {
         showNotification('error', err.message || 'فشل إنشاء المنتجات الجديدة');
@@ -1843,8 +2091,8 @@ Strict Rules:
         return {
           vehicle_brand_id: sug.vehicle_brand_id || 0,
           vehicle_model_id: sug.vehicle_model_id || 0,
-          vehicle_brand_name: sug.brand || sug.vehicle_brand_name || '',
-          vehicle_model_name: sug.model || sug.vehicle_model_name || ''
+          vehicle_brand_name: sug.vehicle_brand_name || sug.brand || sug.make || '',
+          vehicle_model_name: sug.vehicle_model_name || sug.model || ''
         };
       }
       return null;
@@ -1854,6 +2102,7 @@ Strict Rules:
   return (
     <div className="flex-1 w-full h-full flex flex-col">
       <ProInvoiceLayout
+        hideWorkspaces
         title={`وصل شراء${isCancelled ? ' - ملغاة' : ''}`}
         invoiceNumber={invoiceNumber}
         isSaving={saving}
@@ -2178,12 +2427,12 @@ Strict Rules:
                   </div>
                 );
                 if (col.id === 'name') return (
-                  <div key={col.id} style={cellStyle} className={`${commonClasses} flex-col items-start justify-center relative`}>
-                    <div className="flex items-center gap-1.5 w-full">
+                  <div key={col.id} style={cellStyle} className={`${commonClasses} flex-col items-start justify-center py-0.5 relative`}>
+                    <div className="flex items-center gap-1.5 w-full leading-none">
                       <input type="text" value={item.product_name_snapshot} onChange={e => updateItem(item.id, 'product_name_snapshot', e.target.value)}
                         readOnly={isJardMode}
                         dir="auto"
-                        className="w-full bg-transparent border border-transparent focus:border-border_default rounded px-1 py-0.5 text-[13px] font-bold text-text_primary text-start focus:bg-background_card outline-none transition-all" />
+                        className="w-full bg-transparent border border-transparent focus:border-border_default rounded px-1 py-0.5 text-[12px] font-bold text-text_primary text-start focus:bg-background_card outline-none transition-all h-6" />
                       {item.isNewProduct && (
                         <span className="shrink-0 text-[10px] bg-amber-500/20 text-amber-500 font-black px-1.5 py-0.5 rounded border border-amber-500/30">جديد</span>
                       )}
@@ -2194,6 +2443,11 @@ Strict Rules:
                         <span className="shrink-0 text-[10px] bg-danger_red/20 text-danger_red font-black px-1.5 py-0.5 rounded border border-danger_red/30">موقوف</span>
                       )}
                     </div>
+                    {item.product_name && item.product_name !== item.product_name_snapshot && (
+                      <span className="text-[10px] text-text_muted/60 font-medium px-1 block truncate max-w-full leading-tight">
+                        {item.product_name}
+                      </span>
+                    )}
                     {item.isNewProduct && (
                       <button
                         onClick={(e) => {
@@ -2201,7 +2455,7 @@ Strict Rules:
                           setMappingRowId(item.id);
                           setRowSearchQuery("");
                         }}
-                        className="text-[10px] text-primary_blue hover:underline cursor-pointer font-bold px-1"
+                        className="text-[9px] text-primary_blue hover:underline cursor-pointer font-bold px-1 mt-0.5"
                       >
                         ربط بمنتج مسجل 🔗
                       </button>
@@ -2227,13 +2481,33 @@ Strict Rules:
                             <button
                               key={prod.id}
                               onClick={() => {
-                                updateItem(item.id, 'product_id', prod.id);
-                                updateItem(item.id, 'product_name_snapshot', prod.name);
-                                updateItem(item.id, 'product_barcode_snapshot', prod.barcode || prod.internal_code || null);
-                                updateItem(item.id, 'category_id', prod.category_id || 1);
-                                updateItem(item.id, 'unit_id', prod.unit_id || 1);
-                                updateItem(item.id, 'isNewProduct', false);
-                                updateItem(item.id, 'needs_review', false);
+                                setItems(prev => prev.map(i => {
+                                  if (i.id !== item.id) return i;
+                                  const pieces = prod.pieces_per_box || 1;
+                                  const hasSubUnit = prod.has_sub_unit === 1 || prod.has_sub_unit === true;
+                                  const unitName = prod.unit_name || 'حبة';
+                                  const defaultUnit = hasSubUnit ? 'علبة' : unitName;
+                                  const defaultUnitPrice = hasSubUnit ? (prod.purchase_price * pieces) : prod.purchase_price;
+                                  return {
+                                    ...i,
+                                    product_id: prod.id,
+                                    product_name_snapshot: prod.name_fr || prod.name,
+                                    product_name: prod.name,
+                                    product_name_fr: prod.name_fr || '',
+                                    product_barcode_snapshot: prod.barcode || prod.internal_code || null,
+                                    category_id: prod.category_id || 1,
+                                    unit_id: prod.unit_id || 1,
+                                    unit: defaultUnit,
+                                    unit_price: defaultUnitPrice,
+                                    wholesale_price: prod.wholesale_price || 0,
+                                    retail_price: prod.retail_price || 0,
+                                    isNewProduct: false,
+                                    needs_review: false,
+                                    has_sub_unit: hasSubUnit,
+                                    pieces_per_box: pieces,
+                                    unit_name: unitName
+                                  };
+                                }));
                                 setMappingRowId(null);
                                 setRowSearchQuery("");
                               }}
@@ -2265,13 +2539,15 @@ Strict Rules:
                   <div key={col.id} style={cellStyle} className={commonClasses}>
                     {item.has_sub_unit ? (
                       <select 
-                        value={item.unit} 
+                        value={isBoxUnit(item.unit, item.unit_name) ? (item.unit_name && !['قطعة', 'حبة', 'قطعه', 'حبه'].includes(item.unit_name) ? item.unit_name : 'علبة') : 'قطعة'} 
                         onChange={e => updateItemUnit(item.id, e.target.value)}
                         disabled={isReadOnly || isJardMode}
                         className="w-full bg-transparent border border-transparent hover:bg-background_card focus:border-border_default rounded px-0 py-0.5 text-[11px] text-center text-text_primary outline-none transition-all cursor-pointer font-bold"
                       >
-                        <option value="علبة" className="bg-background_card text-text_primary">علبة</option>
-                        {item.unit_name && <option value={item.unit_name} className="bg-background_card text-text_primary">{item.unit_name}</option>}
+                        <option value={item.unit_name && !['قطعة', 'حبة', 'قطعه', 'حبه'].includes(item.unit_name) ? item.unit_name : 'علبة'} className="bg-background_card text-text_primary">
+                          {item.unit_name && !['قطعة', 'حبة', 'قطعه', 'حبه'].includes(item.unit_name) ? item.unit_name : 'علبة'}
+                        </option>
+                        <option value="قطعة" className="bg-background_card text-text_primary">قطعة</option>
                       </select>
                     ) : (
                       <span className="text-xs text-text_muted font-bold">
@@ -2282,13 +2558,17 @@ Strict Rules:
                 );
                 
                 if (col.id === 'purchase_price_box') {
-                  const isEditable = !isReadOnly && (!item.has_sub_unit || item.unit === 'علبة');
-                  const value = (item.has_sub_unit && item.unit !== 'علبة') 
+                  const showBox = item.has_sub_unit || isBulkUnit(item.unit_name || item.unit);
+                  const isBox = isBoxUnit(item.unit, item.unit_name);
+                  const isEditable = showBox && !isReadOnly && (!item.has_sub_unit || isBox);
+                  const value = (item.has_sub_unit && !isBox) 
                     ? (item.unit_price * (item.pieces_per_box || 1)) 
                     : item.unit_price;
                   return (
                     <div key={col.id} style={cellStyle} className={commonClasses}>
-                      {isEditable ? (
+                      {!showBox ? (
+                        <span className="text-text_muted font-bold">-</span>
+                      ) : isEditable ? (
                         <input type="number" min={0} value={value || ''} 
                           onChange={e => updateItem(item.id, 'unit_price', parseFloat(e.target.value) || 0)}
                           readOnly={isReadOnly || isJardMode}
@@ -2303,10 +2583,12 @@ Strict Rules:
                 }
                 
                 if (col.id === 'purchase_price_piece') {
-                  const isEditable = !isReadOnly && (item.has_sub_unit && item.unit !== 'علبة');
+                  const showPiece = item.has_sub_unit || !isBulkUnit(item.unit_name || item.unit);
+                  const isBox = isBoxUnit(item.unit, item.unit_name);
+                  const isEditable = showPiece && !isReadOnly && (item.has_sub_unit ? !isBox : true);
                   const value = item.has_sub_unit 
-                    ? (item.unit === 'علبة' ? (item.unit_price / (item.pieces_per_box || 1)) : item.unit_price) 
-                    : null;
+                    ? (isBox ? (item.unit_price / (item.pieces_per_box || 1)) : item.unit_price) 
+                    : (!showPiece ? null : item.unit_price);
                   return (
                     <div key={col.id} style={cellStyle} className={commonClasses}>
                       {value === null ? (
@@ -2361,22 +2643,36 @@ Strict Rules:
                 
                 if (col.id === 'total') return <div key={col.id} style={cellStyle} className={`${commonClasses} text-[14px] font-black font-numbers text-text_primary`}>{item.total.toFixed(2)}</div>;
 
-                if (col.id === 'wholesale_price') return (
-                  <div key={col.id} style={cellStyle} className={commonClasses}>
-                    <input type="number" min={0} step="any" value={item.wholesale_price || ''} onChange={e => updateItem(item.id, 'wholesale_price', parseFloat(e.target.value) || 0)}
-                      disabled={isReadOnly}
-                      readOnly={isJardMode}
-                      className={`w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-emerald-500 transition-all ${!isReadOnly && !isJardMode ? 'focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none' : 'border-transparent opacity-80'}`} />
-                  </div>
-                );
-                if (col.id === 'retail_price') return (
-                  <div key={col.id} style={cellStyle} className={commonClasses}>
-                    <input type="number" min={0} step="any" value={item.retail_price || ''} onChange={e => updateItem(item.id, 'retail_price', parseFloat(e.target.value) || 0)}
-                      disabled={isReadOnly}
-                      readOnly={isJardMode}
-                      className={`w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-sky-500 transition-all ${!isReadOnly && !isJardMode ? 'focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none' : 'border-transparent opacity-80'}`} />
-                  </div>
-                );
+                if (col.id === 'wholesale_price') {
+                  const showBox = item.has_sub_unit || isBulkUnit(item.unit_name || item.unit);
+                  return (
+                    <div key={col.id} style={cellStyle} className={commonClasses}>
+                      {!showBox ? (
+                        <span className="text-text_muted font-bold">-</span>
+                      ) : (
+                        <input type="number" min={0} step="any" value={item.wholesale_price || ''} onChange={e => updateItem(item.id, 'wholesale_price', parseFloat(e.target.value) || 0)}
+                          disabled={isReadOnly}
+                          readOnly={isJardMode}
+                          className={`w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-emerald-500 transition-all ${!isReadOnly && !isJardMode ? 'focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none' : 'border-transparent opacity-80'}`} />
+                      )}
+                    </div>
+                  );
+                }
+                if (col.id === 'retail_price') {
+                  const showPiece = item.has_sub_unit || !isBulkUnit(item.unit_name || item.unit);
+                  return (
+                    <div key={col.id} style={cellStyle} className={commonClasses}>
+                      {!showPiece ? (
+                        <span className="text-text_muted font-bold">-</span>
+                      ) : (
+                        <input type="number" min={0} step="any" value={item.retail_price || ''} onChange={e => updateItem(item.id, 'retail_price', parseFloat(e.target.value) || 0)}
+                          disabled={isReadOnly}
+                          readOnly={isJardMode}
+                          className={`w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-sky-500 transition-all ${!isReadOnly && !isJardMode ? 'focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none' : 'border-transparent opacity-80'}`} />
+                      )}
+                    </div>
+                  );
+                }
 
                 if (col.id === 'inventory_check') return (
                   <div key={col.id} style={cellStyle} className={commonClasses}>
@@ -2449,13 +2745,18 @@ Strict Rules:
                         <Barcode size={16} />
                       </button>
                       <button 
-                        onClick={() => { 
-                          setEditingItemId(item.id);
+                        onClick={async () => { 
                           if (item.isNewProduct) {
-                            setEditingProductId(null);
-                          } else {
-                            setEditingProductId(item.product_id);
+                            let resolved = item.compatibility_suggestions || [];
+                            try {
+                              resolved = await resolveFitments(item.compatibility_suggestions || []);
+                              setItems(prev => prev.map(it => it.id === item.id ? { ...it, compatibility_suggestions: resolved } : it));
+                            } catch (e) {
+                              console.error('Error resolving fitments on edit:', e);
+                            }
                           }
+                          setEditingItemId(item.id);
+                          setEditingProductId(item.product_id > 0 ? item.product_id : null);
                         }} 
                         className="p-1.5 text-primary_blue hover:bg-primary_blue/10 rounded-lg transition-all"
                       >
@@ -2492,7 +2793,7 @@ Strict Rules:
       {/* ── Smart Import Modal ── */}
       {showSmartImportModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1000] flex items-center justify-center p-4" onClick={() => {
-          if (!isReconciling) {
+          if (!isReconciling && !isOcrLoading) {
             setShowSmartImportModal(false);
           }
         }}>
@@ -2513,33 +2814,70 @@ Strict Rules:
             </div>
 
             {/* Dropdown Selector */}
-            {invoiceQueue.length > 0 && (
-              <div className="mb-4 shrink-0 flex items-center gap-3">
-                <label className="text-sm font-bold text-text_primary shrink-0">الفواتير المرفوعة حديثاً من الهاتف:</label>
-                <select
-                  value={selectedInvoice?.id || ''}
-                  onChange={(e) => {
-                    const inv = invoiceQueue.find(i => i.id === Number(e.target.value));
-                    setSelectedInvoice(inv || null);
-                  }}
-                  className="bg-background_card border border-border_default rounded-xl h-11 px-3 text-sm text-text_primary font-bold focus:border-primary_blue focus:outline-none cursor-pointer flex-1"
-                >
-                  <option value="">-- اختر فاتورة ممسوحة ضوئياً --</option>
-                  {invoiceQueue.map((inv: any) => (
-                    <option key={inv.id} value={inv.id}>
-                      فاتورة تاريخ {new Date(inv.createdAt).toLocaleString('ar-DZ')} ({inv.filePath})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Split layout */}
-            <div className="flex-1 flex flex-col md:flex-row gap-6 overflow-hidden min-h-[450px]">
+            <div className="mb-4 shrink-0 flex flex-col md:flex-row gap-3 items-center">
+              {invoiceQueue.length > 0 && (
+                <div className="flex-grow flex items-center gap-3 w-full md:w-auto">
+                  <label className="text-xs font-bold text-text_primary shrink-0">الفواتير من الهاتف:</label>
+                  <select
+                    value={selectedInvoice?.id || ''}
+                    onChange={(e) => {
+                      const inv = invoiceQueue.find(i => i.id === Number(e.target.value));
+                      setSelectedInvoice(inv || null);
+                      setSelectedLocalImage(null); // Clear local image if phone invoice is selected
+                    }}
+                    className="bg-background_card border border-border_default rounded-xl h-11 px-3 text-xs text-text_primary font-bold focus:border-primary_blue focus:outline-none cursor-pointer flex-1"
+                  >
+                    <option value="">-- اختر فاتورة ممسوحة ضوئياً من الهاتف --</option>
+                    {invoiceQueue.map((inv: any) => (
+                      <option key={inv.id} value={inv.id}>
+                        فاتورة تاريخ {new Date(inv.createdAt).toLocaleString('ar-DZ')} ({inv.filePath})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               
-              {/* Left Column: Invoice Image Preview */}
-              <div className="flex-1 border border-border_default rounded-2xl bg-black/20 p-2 flex flex-col justify-center items-center h-full overflow-hidden relative group">
-                {selectedInvoice ? (
+              <div className="shrink-0 flex items-center gap-2 w-full md:w-auto justify-end">
+                <button
+                  onClick={() => localFileInputRef.current?.click()}
+                  className="bg-background_card hover:bg-background_card_hover text-text_primary border border-border_default text-xs font-bold px-4 py-2.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ImageIcon size={14} className="text-primary_blue" />
+                  <span>تحميل صورة فاتورة من الكمبيوتر</span>
+                </button>
+                <input
+                  type="file"
+                  ref={localFileInputRef}
+                  onChange={handleLocalImageChange}
+                  accept="image/*"
+                  className="hidden"
+                />
+              </div>
+            </div>
+
+            {/* 3-Column Layout */}
+            <div className="flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden min-h-[480px]">
+              
+              {/* Column 1: Invoice Image Preview */}
+              <div className="flex-[1.2] border border-border_default rounded-2xl bg-black/20 p-2 flex flex-col justify-center items-center overflow-hidden relative group min-h-[300px] lg:min-h-0">
+                {selectedLocalImage ? (
+                  <>
+                    <img
+                      src={selectedLocalImage.previewUrl}
+                      alt="Local Invoice Preview"
+                      className="max-w-full max-h-[420px] object-contain rounded-lg transition-all"
+                    />
+                    <div className="absolute bottom-4 left-4 right-4 flex justify-between gap-2 pointer-events-none">
+                      <button
+                        onClick={() => setSelectedLocalImage(null)}
+                        className="pointer-events-auto bg-danger_red hover:bg-danger_red/90 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-lg cursor-pointer transition-all active:scale-95 flex items-center gap-1.5"
+                      >
+                        <X size={13} />
+                        إلغاء الصورة
+                      </button>
+                    </div>
+                  </>
+                ) : selectedInvoice ? (
                   <>
                     <img
                       src={`http://localhost:8766/invoices/${selectedInvoice.filePath}`}
@@ -2569,99 +2907,145 @@ Strict Rules:
                     <FileText size={48} className="opacity-30 text-primary_blue animate-pulse" />
                     <p className="text-sm font-bold">لا توجد فاتورة محددة</p>
                     <p className="text-xs text-text_muted font-bold max-w-xs leading-relaxed">
-                      الرجاء اختيار فاتورة من القائمة المنسدلة أعلاه أو تصوير الفاتورة من تطبيق الهاتف لتظهر هنا مباشرة.
+                      الرجاء رفع صورة فاتورة من الكمبيوتر أو اختيار فاتورة ممسوحة ضوئياً من الهاتف لتتمكن من قراءتها.
                     </p>
                   </div>
                 )}
               </div>
 
-              {/* Right Column: Prompt & Textarea */}
-              <div className="flex-1 flex flex-col gap-4 overflow-y-auto custom-scrollbar h-full pr-1">
-                <div className="p-5 bg-background_card border border-border_default rounded-xl space-y-4 shadow-inner">
-                  <h3 className="text-sm font-bold text-text_primary flex items-center gap-2 border-b border-border_default pb-2">
-                    <Sparkles className="text-primary_blue" size={18}/> طريقة الاستخدام:
-                  </h3>
-                  
-                  <div className="space-y-3 text-xs text-text_secondary leading-relaxed font-sans">
-                    <div>
-                      <span className="font-bold text-primary_blue block mb-1">الخطوة 1: نسخ البرومبت المطور</span>
-                      <p>قم بنسخ برومبت التحليل المطور بالضغط على الزر أدناه لتوجيه الذكاء الاصطناعي لكيفية استخراج البيانات بدقة.</p>
-                      <button
-                        onClick={handleCopyPrompt}
-                        className="mt-2 w-full bg-blue-600 hover:bg-blue-500 text-white rounded-xl py-2.5 px-4 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-98"
-                      >
-                        <Plus size={14} />
-                        نسخ برومبت التحليل الذكي
-                      </button>
+              {/* Column 2: Prompt / Auto OCR & Instructions */}
+              <div className={`flex-[1] flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-1 min-h-[250px] lg:min-h-0 ${isAiActive ? 'justify-center' : ''}`}>
+                
+                {isAiActive ? (
+                  /* 1. Direct API OCR Panel (Visible in Automatic or active mode) */
+                  <div className="p-5 bg-blue-500/10 border border-blue-500/20 rounded-xl space-y-4 shadow-inner">
+                    <h4 className="text-sm font-black text-blue-600 dark:text-blue-300 flex items-center gap-1.5 justify-center">
+                      <Sparkles size={16} className="text-blue-500 animate-pulse" />
+                      قراءة مباشرة وسريعة بالـ AI ⚡
+                    </h4>
+                    <p className="text-[12px] text-text_secondary leading-relaxed text-center">
+                      بما أنك قمت بضبط إعدادات الذكاء الاصطناعي بنجاح، يمكنك قراءة الفاتورة وتحليلها بضغطة زر واحدة دون الحاجة للنسخ واللصق على الويب!
+                    </p>
+                    <button
+                      onClick={handleDirectOCR}
+                      disabled={isOcrLoading || (!selectedInvoice && !selectedLocalImage)}
+                      className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white py-3 rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98"
+                    >
+                      {isOcrLoading ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin" />
+                          جاري قراءة الفاتورة بالذكاء الاصطناعي...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={14} />
+                          <span>ابدأ القراءة والتحليل المباشر ⚡</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-[11px] text-amber-700 dark:text-amber-300 font-bold leading-relaxed">
+                      💡 تلميح: قمت بتفعيل الوضع اليدوي. للتمتع بالقراءة المباشرة بنقرة واحدة داخل البرنامج، قم بتفعيل **الوضع التلقائي** وإدخال مفتاح API في الإعدادات.
                     </div>
 
-                    <div className="pt-2">
-                      <span className="font-bold text-primary_blue block mb-2">الخطوة 2: فتح موقع الذكاء الاصطناعي</span>
-                      <p className="mb-2">اختر أحد الأنظمة المتاحة لديك، وارفع صورة الفاتورة المحددة على اليسار ثم الصق البرومبت:</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => window.electronAPI?.invoke('shell:openExternal', 'https://gemini.google.com/')}
-                          className="bg-[#1a73e8]/10 hover:bg-[#1a73e8]/20 border border-[#1a73e8]/30 text-[#1a73e8] dark:text-[#8ab4f8] rounded-lg py-2 text-xs font-bold transition-all cursor-pointer text-center"
-                        >
-                          فتح Gemini 🌐
-                        </button>
-                        <button
-                          onClick={() => window.electronAPI?.invoke('shell:openExternal', 'https://chatgpt.com/')}
-                          className="bg-[#10a37f]/10 hover:bg-[#10a37f]/20 border border-[#10a37f]/30 text-[#10a37f] dark:text-[#54cba8] rounded-lg py-2 text-xs font-bold transition-all cursor-pointer text-center"
-                        >
-                          فتح ChatGPT 🤖
-                        </button>
-                        <button
-                          onClick={() => window.electronAPI?.invoke('shell:openExternal', 'https://claude.ai/')}
-                          className="bg-[#d97706]/10 hover:bg-[#d97706]/20 border border-[#d97706]/30 text-[#d97706] dark:text-[#fbbf24] rounded-lg py-2 text-xs font-bold transition-all cursor-pointer text-center"
-                        >
-                          فتح Claude 🧠
-                        </button>
-                        <button
-                          onClick={() => window.electronAPI?.invoke('shell:openExternal', 'https://chat.deepseek.com/')}
-                          className="bg-[#2563eb]/10 hover:bg-[#2563eb]/20 border border-[#2563eb]/30 text-[#2563eb] dark:text-[#60a5fa] rounded-lg py-2 text-xs font-bold transition-all cursor-pointer text-center"
-                        >
-                          فتح DeepSeek 🔍
-                        </button>
+                    {/* 2. Manual Web-AI Instructions */}
+                    <div className="p-5 bg-background_card border border-border_default rounded-xl space-y-4 shadow-inner">
+                      <h3 className="text-xs font-bold text-text_primary flex items-center gap-2 border-b border-border_default pb-2">
+                        <FileText className="text-primary_blue" size={16}/> طريقة الاستخدام اليدوية (المجانية):
+                      </h3>
+                      
+                      <div className="space-y-3 text-[11px] text-text_secondary leading-relaxed font-sans">
+                        <div>
+                          <span className="font-bold text-primary_blue block mb-1">الخطوة 1: نسخ البرومبت المطور</span>
+                          <p>قم بنسخ برومبت التحليل المطور بالضغط على الزر أدناه لتوجيه الذكاء الاصطناعي لكيفية استخراج البيانات بدقة.</p>
+                          <button
+                            onClick={handleCopyPrompt}
+                            className="mt-2 w-full bg-background_secondary hover:bg-background_card_hover text-text_primary border border-border_default rounded-xl py-2.5 px-4 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-98"
+                          >
+                            <Plus size={14} />
+                            نسخ برومبت التحليل الذكي
+                          </button>
+                        </div>
+
+                        <div className="pt-2">
+                          <span className="font-bold text-primary_blue block mb-2">الخطوة 2: فتح موقع الذكاء الاصطناعي</span>
+                          <p className="mb-2">اختر أحد الأنظمة المتاحة لديك، وارفع صورة الفاتورة المحددة على اليسار ثم الصق البرومبت:</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => window.electronAPI?.invoke('shell:openExternal', 'https://gemini.google.com/')}
+                              className="bg-[#1a73e8]/10 hover:bg-[#1a73e8]/20 border border-[#1a73e8]/30 text-[#1a73e8] dark:text-[#8ab4f8] rounded-lg py-2 text-[10px] font-bold transition-all cursor-pointer text-center"
+                            >
+                              فتح Gemini 🌐
+                            </button>
+                            <button
+                              onClick={() => window.electronAPI?.invoke('shell:openExternal', 'https://chatgpt.com/')}
+                              className="bg-[#10a37f]/10 hover:bg-[#10a37f]/20 border border-[#10a37f]/30 text-[#10a37f] dark:text-[#54cba8] rounded-lg py-2 text-[10px] font-bold transition-all cursor-pointer text-center"
+                            >
+                              فتح ChatGPT 🤖
+                            </button>
+                            <button
+                              onClick={() => window.electronAPI?.invoke('shell:openExternal', 'https://claude.ai/')}
+                              className="bg-[#d97706]/10 hover:bg-[#d97706]/20 border border-[#d97706]/30 text-[#d97706] dark:text-[#fbbf24] rounded-lg py-2 text-[10px] font-bold transition-all cursor-pointer text-center"
+                            >
+                              فتح Claude 🧠
+                            </button>
+                            <button
+                              onClick={() => window.electronAPI?.invoke('shell:openExternal', 'https://chat.deepseek.com/')}
+                              className="bg-[#2563eb]/10 hover:bg-[#2563eb]/20 border border-[#2563eb]/30 text-[#2563eb] dark:text-[#60a5fa] rounded-lg py-2 text-[10px] font-bold transition-all cursor-pointer text-center"
+                            >
+                              فتح DeepSeek 🔍
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="pt-2">
+                          <span className="font-bold text-primary_blue block mb-1">الخطوة 3: لصق الناتج والتحليل</span>
+                          <p>انسخ الكود الناتج من الذكاء الاصطناعي (JSON) وضعه في المربع على اليمين لمراجعته وتسويته.</p>
+                        </div>
                       </div>
                     </div>
+                  </>
+                )}
+              </div>
 
-                    <div className="pt-2">
-                      <span className="font-bold text-primary_blue block mb-1">الخطوة 3: لصق الناتج والتحليل</span>
-                      <p>انسخ الكود الناتج من الذكاء الاصطناعي (JSON) وضعه في المربع أدناه لمراجعته وتسويته.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex-1 flex flex-col min-h-[200px]">
-                  <label className="text-sm font-bold text-text_primary mb-2 block">الصق كود الـ JSON هنا:</label>
+              {/* Column 3: Paste JSON field */}
+              {!isAiActive && (
+                <div className="flex-[1.2] flex flex-col min-h-[250px] lg:min-h-0">
+                  <label className="text-xs font-bold text-text_primary mb-2 block">الصق كود الـ JSON هنا:</label>
                   <textarea
                     value={importJsonText}
                     onChange={(e) => setImportJsonText(e.target.value)}
                     placeholder="الصق كود الـ JSON المستخرج من الذكاء الاصطناعي..."
-                    className="flex-1 w-full min-h-[180px] p-4 bg-background_card border border-border_default rounded-xl text-sm font-mono text-text_primary placeholder:text-text_muted focus:border-primary_blue focus:outline-none custom-scrollbar"
+                    className="flex-1 w-full min-h-[200px] lg:min-h-0 p-4 bg-background_card border border-border_default rounded-xl text-xs font-mono text-text_primary placeholder:text-text_muted focus:border-primary_blue focus:outline-none custom-scrollbar resize-none"
                   />
                 </div>
-              </div>
+              )}
 
             </div>
 
             {/* Footer buttons */}
             <div className="pt-4 border-t border-border_default flex justify-end gap-2 shrink-0 mt-4">
               <button
-                onClick={() => setShowSmartImportModal(false)}
-                disabled={isReconciling}
+                onClick={() => {
+                  setShowSmartImportModal(false);
+                  setSelectedLocalImage(null);
+                }}
+                disabled={isReconciling || isOcrLoading}
                 className="px-6 py-3 bg-background_secondary border border-border_default text-text_primary rounded-xl text-sm font-bold transition-all hover:bg-background_card_hover disabled:opacity-50 cursor-pointer"
               >
                 إلغاء
               </button>
-              <button
-                onClick={() => handleAnalyzeJson()}
-                disabled={isReconciling}
-                className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-xl font-bold text-sm shadow-lg shadow-blue-600/20 transition-all disabled:opacity-50 cursor-pointer"
-              >
-                {isReconciling ? 'جاري الاستيراد والمطابقة...' : 'تأكيد واستيراد الفاتورة 🡥'}
-              </button>
+              {!isAiActive && (
+                <button
+                  onClick={() => handleAnalyzeJson()}
+                  disabled={isReconciling || isOcrLoading || !importJsonText.trim()}
+                  className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-xl font-bold text-sm shadow-lg shadow-blue-600/20 transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {isReconciling ? 'جاري الاستيراد والمطابقة...' : 'تأكيد واستيراد الفاتورة 🡥'}
+                </button>
+              )}
             </div>
 
           </motion.div>
@@ -2831,7 +3215,7 @@ Strict Rules:
                 if (item.id === editingItemId || (item.product_id > 0 && item.product_id === updatedProduct.id)) {
                   const hasSubUnit = updatedProduct.has_sub_unit || item.has_sub_unit;
                   const piecesPerBox = updatedProduct.pieces_per_box || item.pieces_per_box || 1;
-                  const isItemBox = item.unit === 'علبة';
+                  const isItemBox = isBoxUnit(item.unit);
                   
                   let purchasePrice = updatedProduct.purchase_price || 0;
                   if (hasSubUnit && isItemBox && piecesPerBox > 0) {
@@ -2943,12 +3327,60 @@ Strict Rules:
             <div className="px-3 py-1.5 text-[10px] font-bold text-primary_blue uppercase flex items-center gap-1">
               <Car size={12} /> التوافق والملاءمة
             </div>
-            <div className="px-2 pb-1 max-w-[200px]">
+            <div className="px-2 pb-1 max-w-[220px]">
               <FitmentsBadges productId={rowContextMenu.item.product_id} mode="view" compact />
             </div>
+            {rowContextMenu.item.product_id > 0 && (
+              <button
+                disabled={aiFitmentsLoading}
+                onClick={async () => {
+                  const item = rowContextMenu.item;
+                  setAiFitmentsLoading(true);
+                  setAiFitmentsResult(null);
+                  try {
+                    const res = await window.electronAPI.invoke('ai:autoAddFitments', {
+                      product_id: item.product_id,
+                      product_name: item.product_name_snapshot || 'منتج',
+                      product_barcode: item.product_barcode_snapshot || undefined,
+                    });
+                    if (res.success) {
+                      setAiFitmentsResult({ added: res.added, reasoning: res.reasoning, confidence: res.confidence });
+                    } else {
+                      setAiFitmentsResult({ added: -1, reasoning: res.error || 'حدث خطأ غير معروف', confidence: 0 });
+                    }
+                  } finally {
+                    setAiFitmentsLoading(false);
+                  }
+                }}
+                className="w-full text-right px-3 py-2 text-xs text-purple-400 hover:bg-purple-400/10 rounded-lg transition-colors flex items-center justify-between gap-2 mt-1 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <span className="flex items-center gap-1.5">
+                  {aiFitmentsLoading ? (
+                    <span className="inline-block w-3 h-3 border border-purple-400 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <span className="text-[13px]">🤖</span>
+                  )}
+                  {aiFitmentsLoading ? 'يحلل...' : 'إضافة توافقات بالذكاء الاصطناعي'}
+                </span>
+              </button>
+            )}
+            {aiFitmentsResult && (
+              <div className={`mx-2 mb-2 px-2 py-1.5 rounded-lg text-[10px] text-right ${aiFitmentsResult.added >= 0 ? 'bg-purple-500/10 text-purple-300 border border-purple-500/20' : 'bg-danger_red/10 text-danger_red border border-danger_red/20'}`}>
+                {aiFitmentsResult.added >= 0 ? (
+                  <>
+                    <div className="font-bold mb-0.5">{aiFitmentsResult.added > 0 ? `✅ تمت إضافة ${aiFitmentsResult.added} توافق` : '⚠️ لم يُضف أي توافق جديد'}</div>
+                    {aiFitmentsResult.reasoning && <div className="text-[9px] opacity-75">{aiFitmentsResult.reasoning}</div>}
+                  </>
+                ) : (
+                  <div>{aiFitmentsResult.reasoning}</div>
+                )}
+                <button onClick={() => setAiFitmentsResult(null)} className="text-[9px] underline opacity-60 hover:opacity-100 mt-0.5 cursor-pointer">إغلاق</button>
+              </div>
+            )}
           </div>
         </div>
       )}
+
 
       <ProductPhotoViewerModal
         isOpen={showPhotoModal}

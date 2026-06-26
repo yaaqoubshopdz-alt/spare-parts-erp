@@ -14,6 +14,12 @@ function getLocalDateString() {
   return new Date(Date.now() - tzOffset).toISOString().split('T')[0];
 }
 
+function isBoxUnit(unit?: string): boolean {
+  if (!unit) return false;
+  const u = unit.trim().toLowerCase();
+  return !['قطعة', 'قطعه', 'حبة', 'حبه', 'pcs', 'pc'].includes(u);
+}
+
 export function registerPurchasesIPC() {
   const db = () => DatabaseService.getRawDb();
   
@@ -201,11 +207,11 @@ export function registerPurchasesIPC() {
       const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(newItem.product_id);
       let newQty = newItem.quantity;
       if (prod?.has_sub_unit) {
-        newQty = newItem.unit === 'علبة' ? newItem.quantity : (newItem.quantity / (prod.pieces_per_box || 1));
+        newQty = isBoxUnit(newItem.unit) ? newItem.quantity : (newItem.quantity / (prod.pieces_per_box || 1));
       }
 
       if (oldItem) {
-        let oldQty = oldItem.unit === 'علبة' ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
+        let oldQty = isBoxUnit(oldItem.unit) ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
         const delta = newQty - oldQty;
         if (delta !== 0) {
           raw.prepare('UPDATE stock_balances SET quantity = quantity + ? WHERE product_id = ? AND location_id = 1').run(delta, newItem.product_id);
@@ -216,7 +222,7 @@ export function registerPurchasesIPC() {
       // تحديث أسعار المنتج وحفظ السعر القديم
       const oldProd = raw.prepare('SELECT purchase_price, wholesale_price, retail_price FROM products WHERE id = ?').get(newItem.product_id) as any;
       let calculatedPurchasePrice = newItem.unit_price;
-      if (prod?.has_sub_unit && newItem.unit === 'علبة') {
+      if (prod?.has_sub_unit && isBoxUnit(newItem.unit)) {
         calculatedPurchasePrice = newItem.unit_price / (prod.pieces_per_box || 1);
       }
 
@@ -243,7 +249,7 @@ export function registerPurchasesIPC() {
         const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(oldItem.product_id);
         let oldQty = oldItem.quantity;
         if (prod?.has_sub_unit) {
-          oldQty = oldItem.unit === 'علبة' ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
+          oldQty = isBoxUnit(oldItem.unit) ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
         }
         raw.prepare('UPDATE stock_balances SET quantity = quantity - ? WHERE product_id = ? AND location_id = 1').run(oldQty, oldItem.product_id);
       }
@@ -320,7 +326,7 @@ export function registerPurchasesIPC() {
       const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
       let qty = item.quantity;
       if (prod?.has_sub_unit) {
-        qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
+        qty = isBoxUnit(item.unit) ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
       }
       raw.prepare('UPDATE stock_balances SET quantity = quantity - ? WHERE product_id = ? AND location_id = 1').run(qty, item.product_id);
     }
@@ -373,7 +379,7 @@ export function registerPurchasesIPC() {
       const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
       let qty = item.quantity;
       if (prod?.has_sub_unit) {
-        qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
+        qty = isBoxUnit(item.unit) ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
       }
 
       const stock: any = raw.prepare('SELECT id FROM stock_balances WHERE product_id = ? AND location_id = 1').get(item.product_id);
@@ -386,7 +392,7 @@ export function registerPurchasesIPC() {
       // تحديث سعر الشراء والبيع للمنتج وحفظ السعر القديم
       const oldProd = raw.prepare('SELECT purchase_price, wholesale_price, retail_price FROM products WHERE id = ?').get(item.product_id) as any;
       let calculatedPurchasePrice = item.unit_price;
-      if (prod?.has_sub_unit && item.unit === 'علبة') {
+      if (prod?.has_sub_unit && isBoxUnit(item.unit)) {
         calculatedPurchasePrice = item.unit_price / (prod.pieces_per_box || 1);
       }
 
@@ -405,7 +411,7 @@ export function registerPurchasesIPC() {
           insertHistory.run(item.product_id, 'retail_price', oldProd.retail_price, item.retail_price, userId, invoiceId);
         }
       }
-      raw.prepare('UPDATE products SET purchase_price = ?, wholesale_price = COALESCE(?, wholesale_price), retail_price = COALESCE(?, retail_price), updated_at = datetime(\'now\') WHERE id = ?').run(calculatedPurchasePrice, item.wholesale_price || null, item.retail_price || null, item.product_id);
+      raw.prepare('UPDATE products SET is_active = 1, purchase_price = ?, wholesale_price = COALESCE(?, wholesale_price), retail_price = COALESCE(?, retail_price), updated_at = datetime(\'now\') WHERE id = ?').run(calculatedPurchasePrice, item.wholesale_price || null, item.retail_price || null, item.product_id);
     }
 
     // الصندوق

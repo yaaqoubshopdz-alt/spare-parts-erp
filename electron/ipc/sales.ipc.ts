@@ -14,6 +14,12 @@ function getLocalDateString() {
   return new Date(Date.now() - tzOffset).toISOString().split('T')[0];
 }
 
+function isBoxUnit(unit?: string): boolean {
+  if (!unit) return false;
+  const u = unit.trim().toLowerCase();
+  return !['قطعة', 'قطعه', 'حبة', 'حبه', 'pcs', 'pc'].includes(u);
+}
+
 export function registerSalesIPC() {
   const db = () => DatabaseService.getRawDb();
   
@@ -279,12 +285,12 @@ export function registerSalesIPC() {
         
         let newQty = newItem.quantity;
         if (prod?.has_sub_unit) {
-          newQty = newItem.unit === 'علبة' ? newItem.quantity : (newItem.quantity / (prod.pieces_per_box || 1));
+          newQty = isBoxUnit(newItem.unit) ? newItem.quantity : (newItem.quantity / (prod.pieces_per_box || 1));
         }
 
         let oldQty = 0;
         if (oldItem) {
-          oldQty = oldItem.unit === 'علبة' ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
+          oldQty = isBoxUnit(oldItem.unit) ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
         }
 
         const delta = newQty - oldQty;
@@ -310,11 +316,11 @@ export function registerSalesIPC() {
       const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(newItem.product_id);
       let newQty = newItem.quantity;
       if (prod?.has_sub_unit) {
-        newQty = newItem.unit === 'علبة' ? newItem.quantity : (newItem.quantity / (prod.pieces_per_box || 1));
+        newQty = isBoxUnit(newItem.unit) ? newItem.quantity : (newItem.quantity / (prod.pieces_per_box || 1));
       }
 
       if (oldItem) {
-        let oldQty = oldItem.unit === 'علبة' ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
+        let oldQty = isBoxUnit(oldItem.unit) ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
 
         // حالة: نفس المنتج -> Delta
         const delta = newQty - oldQty;
@@ -333,7 +339,7 @@ export function registerSalesIPC() {
         const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(oldItem.product_id);
         let oldQty = oldItem.quantity;
         if (prod?.has_sub_unit) {
-          oldQty = oldItem.unit === 'علبة' ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
+          oldQty = isBoxUnit(oldItem.unit) ? oldItem.quantity : (oldItem.quantity / (prod.pieces_per_box || 1));
         }
         raw.prepare('UPDATE stock_balances SET quantity = quantity + ? WHERE product_id = ? AND location_id = 1').run(oldQty, oldItem.product_id);
       }
@@ -347,21 +353,23 @@ export function registerSalesIPC() {
 
     // عكس دين الزبون القديم
     const oldDebt = oldInvoice.total - oldInvoice.paid;
-    if (oldDebt > 0 && oldInvoice.customer_id) {
+    if (oldDebt !== 0 && oldInvoice.customer_id) {
       raw.prepare('UPDATE customers SET balance = balance - ? WHERE id = ?').run(oldDebt, oldInvoice.customer_id);
     }
 
     // تطبيق الدفعة الجديدة
-    if (newData.paid > 0) {
+    if (newData.paid !== 0) {
       const cashBoxId = newData.cash_box_id || 1;
       const paymentDate = newData.custom_date || getLocalDateString();
-      raw.prepare(`INSERT INTO payments (payment_number, type, party_type, party_id, amount, direction, payment_method, date, invoice_id, user_id) VALUES (?, 'collection', 'customer', ?, ?, 'in', 'cash', ?, ?, ?)`).run(`REC-${Date.now()}`, newData.customer_id || 0, newData.paid, paymentDate, invoiceId, userId);
+      const direction = newData.paid > 0 ? 'in' : 'out';
+      const absPaid = Math.abs(newData.paid);
+      raw.prepare(`INSERT INTO payments (payment_number, type, party_type, party_id, amount, direction, payment_method, date, invoice_id, user_id) VALUES (?, 'collection', 'customer', ?, ?, ?, 'cash', ?, ?, ?)`).run(`REC-${Date.now()}`, newData.customer_id || 0, absPaid, direction, paymentDate, invoiceId, userId);
       raw.prepare('UPDATE cash_boxes SET current_balance = current_balance + ? WHERE id = ?').run(newData.paid, cashBoxId);
     }
 
     // تطبيق دين الزبون الجديد
     const newDebt = Math.round((newData.total - newData.paid) * 100) / 100;
-    if (newDebt > 0 && newData.customer_id) {
+    if (newDebt !== 0 && newData.customer_id) {
       raw.prepare('UPDATE customers SET balance = balance + ? WHERE id = ?').run(newDebt, newData.customer_id);
     }
 
@@ -383,7 +391,7 @@ export function registerSalesIPC() {
     const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
     let qty = item.quantity;
     if (prod?.has_sub_unit) {
-      qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
+      qty = isBoxUnit(item.unit) ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
     }
     raw.prepare('UPDATE stock_balances SET quantity = quantity + ? WHERE product_id = ? AND location_id = 1').run(qty, item.product_id);
   }
@@ -392,7 +400,7 @@ export function registerSalesIPC() {
     const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
     let qty = item.quantity;
     if (prod?.has_sub_unit) {
-      qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
+      qty = isBoxUnit(item.unit) ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
     }
     raw.prepare('UPDATE stock_balances SET quantity = quantity - ? WHERE product_id = ? AND location_id = 1').run(qty, item.product_id);
   }
@@ -461,7 +469,7 @@ export function registerSalesIPC() {
       const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
       let qty = item.quantity;
       if (prod?.has_sub_unit) {
-        qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
+        qty = isBoxUnit(item.unit) ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
       }
       raw.prepare('UPDATE stock_balances SET quantity = quantity + ? WHERE product_id = ? AND location_id = 1').run(qty, item.product_id);
     }
@@ -495,7 +503,7 @@ export function registerSalesIPC() {
         const prod: any = raw.prepare('SELECT name, has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
         let qty = item.quantity;
         if (prod?.has_sub_unit) {
-          qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
+          qty = isBoxUnit(item.unit) ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
         }
         const entry = productQuantities.get(item.product_id) || { qty: 0, name: prod?.name || item.product_name_snapshot || 'Unknown' };
         entry.qty += qty;
@@ -527,7 +535,7 @@ export function registerSalesIPC() {
       const prod: any = raw.prepare('SELECT has_sub_unit, pieces_per_box FROM products WHERE id = ?').get(item.product_id);
       let qty = item.quantity;
       if (prod?.has_sub_unit) {
-        qty = item.unit === 'علبة' ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
+        qty = isBoxUnit(item.unit) ? item.quantity : (item.quantity / (prod.pieces_per_box || 1));
       }
       
       const stock: any = raw.prepare('SELECT id FROM stock_balances WHERE product_id = ? AND location_id = 1').get(item.product_id);

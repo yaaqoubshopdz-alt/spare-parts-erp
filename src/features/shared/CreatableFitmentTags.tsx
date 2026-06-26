@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Car, X, Plus, Search, Check, Sparkles, Globe } from 'lucide-react';
+import { Car, X, Plus, Search, Check, Sparkles, Globe, Image as ImageIcon, UploadCloud, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { showSuccess, showError } from '../../shared/utils/notifications';
 
@@ -39,13 +39,87 @@ export default function CreatableFitmentTags({ value, onChange, productName }: C
   });
 
   const [aiJsonInput, setAiJsonInput] = useState('');
+  const [aiTextInput, setAiTextInput] = useState('');
   const [showAiImport, setShowAiImport] = useState(false);
+  const [aiMode, setAiMode] = useState<'automatic' | 'manual'>('manual');
+  const [aiTab, setAiTab] = useState<'extract' | 'json'>('extract');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleOpenAiPrompt = () => {
     const term = productName || 'هذا المنتج';
     const promptText = `أعطني توافقات سيارات قطعة الغيار "${term}" ككود JSON مصفوفة كائنات فقط بهذا التنسيق: [{"brand": "Renault", "model": "Symbol"}, {"brand": "Peugeot", "model": "208"}]. لا تكتب أي نص آخر خارج كود JSON.`;
     const url = `https://www.google.com/search?q=${encodeURIComponent(promptText)}`;
     window.electronAPI?.invoke('shell:openExternal', url);
+  };
+
+  const processFitmentArray = async (parsed: any[]) => {
+    const bRes = await window.electronAPI.invoke('db:vehicles:getBrands');
+    const mRes = await window.electronAPI.invoke('db:vehicles:getModels');
+    
+    let currentBrands = bRes.success ? bRes.data : [];
+    let currentModels = mRes.success ? mRes.data : [];
+
+    const newFitments: FitmentTag[] = [...value];
+    let addedCount = 0;
+
+    for (const item of parsed) {
+      const brandName = (item.brand || item.make || '').trim();
+      const modelName = (item.model || '').trim();
+
+      if (!brandName || !modelName) continue;
+
+      let brandObj = currentBrands.find((b: any) => b.name.toLowerCase() === brandName.toLowerCase());
+      let brandId = brandObj ? brandObj.id : null;
+      let finalBrandName = brandObj ? brandObj.name : brandName;
+
+      if (!brandId) {
+        const createBrandRes = await window.electronAPI.invoke('db:vehicles:createBrand', brandName);
+        if (createBrandRes.success) {
+          brandId = createBrandRes.id;
+          currentBrands.push({ id: brandId, name: brandName });
+        } else {
+          console.error('Failed to create brand', brandName);
+          continue;
+        }
+      }
+
+      let modelObj = currentModels.find((m: any) => 
+        m.vehicle_brand_id === brandId && 
+        m.name.toLowerCase() === modelName.toLowerCase()
+      );
+      let modelId = modelObj ? modelObj.id : null;
+      let finalModelName = modelObj ? modelObj.name : modelName;
+
+      if (!modelId) {
+        const createModelRes = await window.electronAPI.invoke('db:vehicles:createModel', {
+          brand_id: brandId,
+          name: modelName
+        });
+        if (createModelRes.success) {
+          modelId = createModelRes.id;
+          currentModels.push({ id: modelId, vehicle_brand_id: brandId, name: modelName, brand_name: finalBrandName });
+        } else {
+          console.error('Failed to create model', modelName);
+          continue;
+        }
+      }
+
+      const exists = newFitments.some(v => v.vehicle_model_id === modelId);
+      if (!exists) {
+        newFitments.push({
+          vehicle_brand_id: brandId,
+          vehicle_model_id: modelId,
+          vehicle_brand_name: finalBrandName,
+          vehicle_model_name: finalModelName
+        });
+        addedCount++;
+      }
+    }
+
+    setBrands(currentBrands);
+    setAllModels(currentModels);
+    onChange(newFitments);
+    return addedCount;
   };
 
   const handleApplyAIJSON = async () => {
@@ -62,78 +136,15 @@ export default function CreatableFitmentTags({ value, onChange, productName }: C
       }
 
       const parsed = JSON.parse(cleanInput);
-      if (!Array.isArray(parsed)) {
-        showError('يجب أن يكون كود JSON عبارة عن مصفوفة (Array) تحتوي على قطع متوافقة.');
+      const items = Array.isArray(parsed) ? parsed : (parsed.fitments || []);
+      if (!Array.isArray(items)) {
+        showError('يجب أن يكون كود JSON عبارة عن مصفوفة تحتوي على قطع متوافقة أو كائن يحتوي على حقل fitments.');
         setLoading(false);
         return;
       }
 
-      const bRes = await window.electronAPI.invoke('db:vehicles:getBrands');
-      const mRes = await window.electronAPI.invoke('db:vehicles:getModels');
-      
-      let currentBrands = bRes.success ? bRes.data : [];
-      let currentModels = mRes.success ? mRes.data : [];
-
-      const newFitments: FitmentTag[] = [...value];
-
-      for (const item of parsed) {
-        const brandName = (item.brand || item.make || '').trim();
-        const modelName = (item.model || '').trim();
-
-        if (!brandName || !modelName) continue;
-
-        let brandObj = currentBrands.find((b: any) => b.name.toLowerCase() === brandName.toLowerCase());
-        let brandId = brandObj ? brandObj.id : null;
-        let finalBrandName = brandObj ? brandObj.name : brandName;
-
-        if (!brandId) {
-          const createBrandRes = await window.electronAPI.invoke('db:vehicles:createBrand', brandName);
-          if (createBrandRes.success) {
-            brandId = createBrandRes.id;
-            currentBrands.push({ id: brandId, name: brandName });
-          } else {
-            console.error('Failed to create brand', brandName);
-            continue;
-          }
-        }
-
-        let modelObj = currentModels.find((m: any) => 
-          m.vehicle_brand_id === brandId && 
-          m.name.toLowerCase() === modelName.toLowerCase()
-        );
-        let modelId = modelObj ? modelObj.id : null;
-        let finalModelName = modelObj ? modelObj.name : modelName;
-
-        if (!modelId) {
-          const createModelRes = await window.electronAPI.invoke('db:vehicles:createModel', {
-            brand_id: brandId,
-            name: modelName
-          });
-          if (createModelRes.success) {
-            modelId = createModelRes.id;
-            currentModels.push({ id: modelId, vehicle_brand_id: brandId, name: modelName, brand_name: finalBrandName });
-          } else {
-            console.error('Failed to create model', modelName);
-            continue;
-          }
-        }
-
-        const exists = newFitments.some(v => v.vehicle_model_id === modelId);
-        if (!exists) {
-          newFitments.push({
-            vehicle_brand_id: brandId,
-            vehicle_model_id: modelId,
-            vehicle_brand_name: finalBrandName,
-            vehicle_model_name: finalModelName
-          });
-        }
-      }
-
-      setBrands(currentBrands);
-      setAllModels(currentModels);
-      
-      onChange(newFitments);
-      showSuccess(`تم استيراد وتطبيق ${newFitments.length - value.length} توافقات جديدة بنجاح!`);
+      const added = await processFitmentArray(items);
+      showSuccess(`تم استيراد وتطبيق ${added} توافقات جديدة بنجاح!`);
       setAiJsonInput('');
       setShowAiImport(false);
     } catch (e: any) {
@@ -141,6 +152,42 @@ export default function CreatableFitmentTags({ value, onChange, productName }: C
       console.error(e);
     }
     setLoading(false);
+  };
+
+  const handleExtractFitments = async (payload: { text?: string; base64Image?: string; mimeType?: string }) => {
+    setLoading(true);
+    try {
+      const res = await window.electronAPI.invoke('ai:extractFitments', payload);
+      if (res.success && res.data) {
+        const fitmentsList = res.data.fitments || [];
+        if (fitmentsList.length === 0) {
+          showError('لم يتم العثور على أي توافقات للمركبات في الملف/النص المدخل.');
+          setLoading(false);
+          return;
+        }
+        const added = await processFitmentArray(fitmentsList);
+        showSuccess(`تم استخراج وتطبيق ${added} توافقات جديدة بالذكاء الاصطناعي بنجاح (مستوى الثقة: ${res.data.confidence || 100}%)!`);
+        setAiTextInput('');
+        setShowAiImport(false);
+      } else {
+        showError(res.error || 'فشل استخراج التوافقات بالذكاء الاصطناعي. تأكد من إعدادات الـ API Key.');
+      }
+    } catch (e: any) {
+      showError(e.message || 'حدث خطأ أثناء الاستخراج');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = (reader.result as string).split(',')[1];
+      await handleExtractFitments({ base64Image: base64, mimeType: file.type });
+    };
+    reader.readAsDataURL(file);
   };
 
   // Load all brands and models on mount
@@ -151,6 +198,15 @@ export default function CreatableFitmentTags({ value, onChange, productName }: C
   const loadBrandsAndModels = async () => {
     setLoading(true);
     try {
+      const configRes = await window.electronAPI.invoke('ai:getConfig');
+      if (configRes.success && configRes.data) {
+        setAiMode(configRes.data.mode || 'manual');
+        if (configRes.data.mode === 'automatic') {
+          setAiTab('extract');
+        } else {
+          setAiTab('json');
+        }
+      }
       const bRes = await window.electronAPI.invoke('db:vehicles:getBrands');
       if (bRes.success && bRes.data) {
         setBrands(bRes.data);
@@ -268,9 +324,9 @@ export default function CreatableFitmentTags({ value, onChange, productName }: C
   return (
     <div className="w-full space-y-4 font-cairo">
       
-      {/* ── AI JSON Import Panel ── */}
+      {/* ── AI Extraction / JSON Import Panel ── */}
       <div className="flex items-center justify-between gap-3 bg-white/[0.02] border border-white/5 p-3 rounded-xl">
-        <span className="text-[12px] font-bold text-text_secondary">توافق السيارات مع هذا المنتج:</span>
+        <span className="text-[12px] font-bold text-text_secondary">تطبيق التوافقات بالذكاء الاصطناعي:</span>
         <button
           type="button"
           onClick={() => setShowAiImport(!showAiImport)}
@@ -281,7 +337,7 @@ export default function CreatableFitmentTags({ value, onChange, productName }: C
           }`}
         >
           <Sparkles size={13} className="text-blue-500" />
-          <span>استيراد ذكي للتوافقات (AI JSON)</span>
+          <span>استيراد ذكي للتوافقات</span>
         </button>
       </div>
 
@@ -294,43 +350,132 @@ export default function CreatableFitmentTags({ value, onChange, productName }: C
             transition={{ duration: 0.2 }}
             className="overflow-hidden bg-blue-500/5 dark:bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 space-y-3 shadow-lg"
           >
-            <div className="flex justify-between items-center gap-3">
-              <span className="text-xs font-bold text-blue-500 flex items-center gap-1.5">
-                <Sparkles size={14} /> استيراد التوافقات بنقرة واحدة باستخدام كود JSON
-              </span>
+            {/* Tabs Selector */}
+            <div className="flex border-b border-blue-500/10 pb-2">
               <button
                 type="button"
-                onClick={handleOpenAiPrompt}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-500/20 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                onClick={() => setAiTab('extract')}
+                className={`px-4 py-1.5 text-xs font-bold border-b-2 transition-all ${
+                  aiTab === 'extract'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400 font-black'
+                    : 'border-transparent text-text_secondary hover:text-text_primary'
+                }`}
               >
-                <Globe size={13} />
-                <span>توليد كود التوافقات من جوجل AI</span>
+                ⚡ استخراج مباشر بالـ API Key
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiTab('json')}
+                className={`px-4 py-1.5 text-xs font-bold border-b-2 transition-all ${
+                  aiTab === 'json'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400 font-black'
+                    : 'border-transparent text-text_secondary hover:text-text_primary'
+                }`}
+              >
+                📋 استيراد JSON يدوي
               </button>
             </div>
-            
-            <textarea
-              value={aiJsonInput}
-              onChange={e => setAiJsonInput(e.target.value)}
-              placeholder={`قم بلصق كود الـ JSON هنا من جوجل AI... مثال:
-[
+
+            {aiTab === 'extract' && (
+              <div className="space-y-3 pt-1">
+                {aiMode === 'manual' && (
+                  <div className="bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-lg text-[11px] text-amber-700 dark:text-amber-300 font-bold leading-relaxed">
+                    ⚠️ أنت تستخدم الوضع اليدوي حالياً. للاستخراج المباشر بالـ API بنقرة واحدة، يرجى تفعيل **الوضع التلقائي** وإدخال مفتاح API في الإعدادات.
+                  </div>
+                )}
+                
+                <div className="flex justify-between items-center gap-3">
+                  <span className="text-[11px] font-bold text-text_secondary">
+                    اكتب وصف القطعة أو التوافقات (أو ارفع صورة كتالوج):
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-500/20 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <ImageIcon size={13} />
+                    <span>رفع صورة الكتالوج 📷</span>
+                  </button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleImageUpload}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                </div>
+
+                <textarea
+                  value={aiTextInput}
+                  onChange={e => setAiTextInput(e.target.value)}
+                  placeholder="مثال: متوافق مع سيارات تويوتا يارس من 2015 إلى 2020 محرك 1.3L، وسيارة كليو 4 من 2013 إلى 2019..."
+                  rows={3}
+                  className="w-full bg-background_secondary dark:bg-black/20 border border-border_default dark:border-white/10 rounded-lg p-3 text-xs outline-none focus:border-blue-500 text-right leading-relaxed"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => handleExtractFitments({ text: aiTextInput })}
+                  disabled={loading || !aiTextInput.trim()}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-lg py-2 text-xs font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                >
+                  {loading ? (
+                    'جاري استخراج التوافقات وتطبيقها...'
+                  ) : (
+                    <>
+                      <Sparkles size={14} />
+                      <span>استخراج وتطبيق التوافقات بالذكاء الاصطناعي ⚡</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {aiTab === 'json' && (
+              <div className="space-y-3 pt-1">
+                <div className="flex justify-between items-center gap-3">
+                  <span className="text-xs font-bold text-blue-500 flex items-center gap-1.5">
+                    <FileText size={13} /> الصق كود JSON المستخرج من ChatGPT/Gemini
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleOpenAiPrompt}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-500/20 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <Globe size={13} />
+                    <span>توليد من ويب AI</span>
+                  </button>
+                </div>
+                
+                <textarea
+                  value={aiJsonInput}
+                  onChange={e => setAiJsonInput(e.target.value)}
+                  placeholder={`[
   {"brand": "Peugeot", "model": "208"},
   {"brand": "Renault", "model": "Symbol"}
 ]`}
-              dir="ltr"
-              rows={4}
-              className="w-full bg-background_secondary dark:bg-black/20 border border-border_default dark:border-white/10 rounded-lg p-3 text-xs font-numbers outline-none focus:border-blue-500 text-left font-mono"
-            />
-            
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={handleApplyAIJSON}
-                disabled={loading}
-                className="flex-grow bg-blue-600 hover:bg-blue-500 text-white rounded-lg py-2 text-xs font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-              >
-                {loading ? 'جاري الاستيراد وتحديث قاعدة البيانات...' : <><Check size={14}/> تطبيق التوافقات المستوردة</>}
-              </button>
-            </div>
+                  dir="ltr"
+                  rows={3}
+                  className="w-full bg-background_secondary dark:bg-black/20 border border-border_default dark:border-white/10 rounded-lg p-3 text-xs font-numbers outline-none focus:border-blue-500 text-left font-mono"
+                />
+                
+                <button
+                  type="button"
+                  onClick={handleApplyAIJSON}
+                  disabled={loading || !aiJsonInput.trim()}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-lg py-2 text-xs font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                >
+                  {loading ? (
+                    'جاري الاستيراد وتحديث قاعدة البيانات...'
+                  ) : (
+                    <>
+                      <Check size={14} />
+                      <span>تطبيق التوافقات المستوردة</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

@@ -35,6 +35,8 @@ export default {
         arabic: ['Cairo', 'Noto Kufi Arabic', 'sans-serif'],
         french: ['Inter', 'sans-serif'],
         numbers: ['JetBrains Mono', 'monospace'],
+        vazirmatn: ['Vazirmatn', 'sans-serif'],
+        tajawal: ['Tajawal', 'sans-serif'],
       },
       spacing: {
         '11': '2.75rem',

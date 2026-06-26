@@ -27,12 +27,16 @@ interface AddProductModalProps {
   } | null;
 }
 
-const DIVISIBLE_CODES = ['LTR', 'MTR', 'KG'];
+const DIVISIBLE_CODES = ['LTR', 'MTR', 'KG', 'BOX', 'SET', 'PKG'];
 const DIV_LABELS: Record<string, { unit: string; bulk: string; icon: string }> = {
   LTR: { unit: 'اللتر', bulk: 'العلبة/البرميل', icon: '🧴' },
   MTR: { unit: 'المتر', bulk: 'اللفة', icon: '📏' },
   KG:  { unit: 'الكيلو', bulk: 'الكيس/الشحنة', icon: '⚖️' },
+  BOX: { unit: 'القطعة', bulk: 'العلبة', icon: '📦' },
+  SET: { unit: 'القطعة', bulk: 'الطقم', icon: '🛠️' },
+  PKG: { unit: 'القطعة', bulk: 'العبوة', icon: '📦' },
 };
+
 
 interface CustomSelectProps {
   label: string;

@@ -8,23 +8,79 @@ import path from 'path';
 import { DatabaseService } from '../services/database.service';
 import { AccountingEngine } from '../services/accounting.service';
 
-function compileFTS5Query(query: string): string {
+function compileFTS5Query(query: string, operator: 'AND' | 'OR' = 'AND'): string {
   if (!query) return '';
   // Normalize Arabic (أ، إ، آ -> ا) and (ة -> ه) and strip diacritics
-  const normalized = query
+  let normalized = query
     .replace(/[أإآ]/g, 'ا')
     .replace(/ة/g, 'ه')
     .replace(/[\u064B-\u0652]/g, '') // strip diacritics
     .toLowerCase()
     .trim();
-    
+
+  // Brand spelling corrections (Arabic typos)
+  normalized = normalized
+    .replace(/\b(مايلو|فايلو|فالو|فالييو)\b/g, 'فاليو')
+    .replace(/\b(بوشش|بوص)\b/g, 'بوش')
+    .replace(/\b(بريمو|برمبو|برميو)\b/g, 'بريمبو')
+    .replace(/\b(قيتس|قاتس|قيتز|جيتز)\b/g, 'جيتس')
+    .replace(/\b(طوطال)\b/g, 'توتال')
+    .replace(/\b(نجك|نجكي|انجي كي)\b/g, 'ngk')
+    .replace(/\b(ديلفي|دلفي)\b/g, 'delphi')
+    .replace(/\b(سيمبول|سمبول)\b/g, 'symbol');
+
+  // Construct state typos (ت -> ه)
+  normalized = normalized
+    .replace(/\bمضخت\b/g, 'مضخه')
+    .replace(/\bطرمبت\b/g, 'طرمبه')
+    .replace(/\bجلدت\b/g, 'جلده')
+    .replace(/\bعلبت\b/g, 'علبه')
+    .replace(/\bصفيت\b/g, 'صفيه')
+    .replace(/\bشمعت\b/g, 'شمعة');
+
   const words = normalized.split(/[\s,\.\-\_\/\\\(\)\{\}\[\]\+]+/);
-  const ftsWords = words
+  const filteredWords = words
     .map(w => w.trim())
-    .filter(w => w.length > 0)
-    .map(w => `${w}*`);
+    .filter(w => w.length > 0);
     
-  return ftsWords.join(' AND ');
+  // Common Arabic, French, and English stop words used in search queries
+  const stopWords = new Set([
+    // Arabic
+    'اريد', 'أريد', 'حبيت', 'اعطيني', 'أعطيني', 'عطيني', 'الموجوده', 'الموجودة', 'موجود', 
+    'موجودة', 'موجوده', 'في', 'من', 'على', 'يا', 'التي', 'الذي', 'تاع', 'تع', 'دي', 
+    'سلعه', 'سلعة', 'سلع', 'قطعه', 'قطعة', 'قطع', 'غيار', 'المخزن', 'المخزون', 'هات', 
+    'جيب', 'الموجودين', 'اي', 'أى', 'شيء', 'شئ', 'شي', 'حاجة', 'حاجه', 'كل', 'الكل', 
+    'كامل', 'جميع', 'وريلي', 'ابحث', 'البحث', 'عن', 'لقيلي', 'لقالي', 'لقى', 'حوس', 
+    'تحوس', 'نحوس', 'ابحثلي', 'ابحث لي', 'معليش', 'بلازما', 'لوكان', 'كانش', 'كاين', 'كاينش',
+    // French
+    'je', 'veux', 'les', 'des', 'le', 'la', 'qui', 'sont', 'en', 'dans', 'stock',
+    'disponible', 'disponibles', 'un', 'une', 'pour', 'de', 'd', 'avec', 'produit', 'produits',
+    // English
+    'i', 'want', 'the', 'a', 'an', 'some', 'any', 'in', 'on', 'at', 'stock',
+    'available', 'present', 'products', 'items', 'for', 'with', 'of', 'product'
+  ]);
+  
+  const coreWords = filteredWords.filter(w => !stopWords.has(w));
+  
+  // Fallback to all words if query is composed entirely of stop words
+  const wordsToUse = coreWords.length > 0 ? coreWords : filteredWords;
+  
+  const ftsWords = wordsToUse.map(w => {
+    if (w.length <= 2) {
+      return `${w}*`;
+    }
+    if (w.startsWith('ال')) {
+      const stripped = w.substring(2);
+      if (stripped.length > 1) {
+        return `(${w}* OR ${stripped}*)`;
+      }
+    } else {
+      return `(${w}* OR ال${w}*)`;
+    }
+    return `${w}*`;
+  });
+  
+  return ftsWords.join(` ${operator} `);
 }
 
 function normalizeForSpellCheck(str: string): string {
@@ -103,17 +159,34 @@ export function registerProductsIPC() {
 
       if (filters?.search && filters.search.trim()) {
         const query = filters.search;
-        const ftsQuery = compileFTS5Query(query);
+        const ftsQuery = compileFTS5Query(query, 'AND');
         let matchingIds: number[] = [];
         if (ftsQuery) {
           try {
-            const matches = raw.prepare(`
+            let matches = raw.prepare(`
               SELECT product_id 
               FROM product_search_fts 
               WHERE product_search_fts MATCH ? 
               LIMIT 500
             `).all(ftsQuery) as any[];
             matchingIds = matches.map(m => m.product_id);
+
+            // ── OR fallback ONLY for single-word queries ───────────────
+            // For multi-word queries, OR would return too many unrelated results.
+            // If user typed 2+ words and AND returns nothing, show empty — not all.
+            const wordCount = ftsQuery.split(' AND ').length;
+            if (matchingIds.length === 0 && wordCount <= 1) {
+              const ftsQueryOr = compileFTS5Query(query, 'OR');
+              if (ftsQueryOr && ftsQueryOr !== ftsQuery) {
+                matches = raw.prepare(`
+                  SELECT product_id 
+                  FROM product_search_fts 
+                  WHERE product_search_fts MATCH ? 
+                  LIMIT 200
+                `).all(ftsQueryOr) as any[];
+                matchingIds = matches.map(m => m.product_id);
+              }
+            }
           } catch (ftsError) {
             console.error('[Products IPC] getAll FTS match error:', ftsError);
           }
@@ -285,25 +358,61 @@ export function registerProductsIPC() {
         return { success: true, data: [] };
       }
 
-      const normQuery = query
+      let normQuery = query
         .replace(/[أإآ]/g, 'ا')
         .replace(/ة/g, 'ه')
         .replace(/[\u064B-\u0652]/g, '')
         .toLowerCase()
         .trim();
 
+      // Brand spelling corrections (Arabic typos)
+      normQuery = normQuery
+        .replace(/\b(مايلو|فايلو|فالو|فالييو)\b/g, 'فاليو')
+        .replace(/\b(بوشش|بوص)\b/g, 'بوش')
+        .replace(/\b(بريمو|برمبو|برميو)\b/g, 'بريمبو')
+        .replace(/\b(قيتس|قاتس|قيتز|جيتز)\b/g, 'جيتس')
+        .replace(/\b(طوطال)\b/g, 'توتال')
+        .replace(/\b(نجك|نجكي|انجي كي)\b/g, 'ngk')
+        .replace(/\b(ديلفي|دلفي)\b/g, 'delphi')
+        .replace(/\b(سيمبول|سمبول)\b/g, 'symbol');
+
+      // Construct state typos (ت -> ه)
+      normQuery = normQuery
+        .replace(/\bمضخت\b/g, 'مضخه')
+        .replace(/\bطرمبت\b/g, 'طرمبه')
+        .replace(/\bجلدت\b/g, 'جلده')
+        .replace(/\bعلبت\b/g, 'علبه')
+        .replace(/\bصفيت\b/g, 'صفيه')
+        .replace(/\bشمعت\b/g, 'شمعة');
+
       // 1. Try matching with FTS5
-      const ftsQuery = compileFTS5Query(query);
+      const ftsQuery = compileFTS5Query(query, 'AND');
       let matchingIds: number[] = [];
       if (ftsQuery) {
         try {
-          const matches = raw.prepare(`
+          let matches = raw.prepare(`
             SELECT product_id 
             FROM product_search_fts 
             WHERE product_search_fts MATCH ? 
             LIMIT 100
           `).all(ftsQuery) as any[];
           matchingIds = matches.map(m => m.product_id);
+
+          // ── OR fallback ONLY for single-word queries ──────────────
+          // Multi-word AND failures show nothing — not unrelated results
+          const wcSearch = ftsQuery.split(' AND ').length;
+          if (matchingIds.length === 0 && wcSearch <= 1) {
+            const ftsQueryOr = compileFTS5Query(query, 'OR');
+            if (ftsQueryOr && ftsQueryOr !== ftsQuery) {
+              matches = raw.prepare(`
+                SELECT product_id 
+                FROM product_search_fts 
+                WHERE product_search_fts MATCH ? 
+                LIMIT 100
+              `).all(ftsQueryOr) as any[];
+              matchingIds = matches.map(m => m.product_id);
+            }
+          }
         } catch (ftsError) {
           console.error('[Products IPC] FTS match error:', ftsError);
         }
@@ -429,6 +538,31 @@ export function registerProductsIPC() {
       return { success: true };
     } catch (error: any) {
       console.error('[Products IPC] Record usage error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ── Get Popular Searches (Advanced suggestion chips based on actual usage) ──────
+  ipcMain.handle('db:products:getPopularSearches', async () => {
+    try {
+      const raw = db();
+      // Get the top 6 most frequently used product names from product_usage
+      const rows = raw.prepare(`
+        SELECT product_name, SUM(usage_count) as total_usage
+        FROM product_usage
+        GROUP BY product_name
+        ORDER BY total_usage DESC, last_used_at DESC
+        LIMIT 6
+      `).all() as any[];
+
+      const defaultSuggestions = ['فلتر زيت لسيارة هيلوكس', 'تيل فرامل Clio 4', 'أصلي Bosch', 'شمعات احتراق Golf 7'];
+      const popularNames = rows.map(r => r.product_name);
+      
+      // Merge popular product names with defaults to always have 6 recommendations
+      const merged = Array.from(new Set([...popularNames, ...defaultSuggestions])).slice(0, 6);
+      return { success: true, data: merged };
+    } catch (error: any) {
+      console.error('[Products IPC] getPopularSearches error:', error);
       return { success: false, error: error.message };
     }
   });
@@ -695,17 +829,33 @@ export function registerProductsIPC() {
 
       if (filters?.search && filters.search.trim()) {
         const query = filters.search;
-        const ftsQuery = compileFTS5Query(query);
+        const ftsQuery = compileFTS5Query(query, 'AND');
         let matchingIds: number[] = [];
         if (ftsQuery) {
           try {
-            const matches = raw.prepare(`
+            let matches = raw.prepare(`
               SELECT product_id 
               FROM product_search_fts 
               WHERE product_search_fts MATCH ? 
               LIMIT 200
             `).all(ftsQuery) as any[];
             matchingIds = matches.map(m => m.product_id);
+
+            // ── OR fallback ONLY for single-word queries ──────────────
+            // Multi-word AND failures show nothing — not unrelated results
+            const wcAdv = ftsQuery.split(' AND ').length;
+            if (matchingIds.length === 0 && wcAdv <= 1) {
+              const ftsQueryOr = compileFTS5Query(query, 'OR');
+              if (ftsQueryOr && ftsQueryOr !== ftsQuery) {
+                matches = raw.prepare(`
+                  SELECT product_id 
+                  FROM product_search_fts 
+                  WHERE product_search_fts MATCH ? 
+                  LIMIT 200
+                `).all(ftsQueryOr) as any[];
+                matchingIds = matches.map(m => m.product_id);
+              }
+            }
           } catch (ftsError) {
             console.error('[Products IPC] advancedSearch FTS match error:', ftsError);
           }
@@ -715,9 +865,17 @@ export function registerProductsIPC() {
           where += ` AND (p.id IN (${matchingIds.join(',')}) OR p.barcode = ? OR p.internal_code = ? OR p.id IN (SELECT product_id FROM product_barcodes WHERE barcode = ?))`;
           params.push(query, query, query);
         } else {
-          where += ` AND (p.name LIKE ? OR p.name_fr LIKE ? OR p.barcode LIKE ? OR p.internal_code LIKE ? OR p.id IN (SELECT product_id FROM product_barcodes WHERE barcode LIKE ?))`;
-          const s = `%${query}%`;
-          params.push(s, s, s, s, s);
+          // For multi-word queries that matched nothing, don't fall back to broad LIKE
+          // (would return too many unrelated products). Return no results.
+          const isMultiWord = (query || '').trim().split(/\s+/).filter(Boolean).length > 1;
+          if (!isMultiWord) {
+            where += ` AND (p.name LIKE ? OR p.name_fr LIKE ? OR p.barcode LIKE ? OR p.internal_code LIKE ? OR p.id IN (SELECT product_id FROM product_barcodes WHERE barcode LIKE ?))`;
+            const s = `%${query}%`;
+            params.push(s, s, s, s, s);
+          } else {
+            // No match — force zero results
+            where += ` AND 1=0`;
+          }
         }
       }
       if (filters?.category_id) {
@@ -821,6 +979,7 @@ export function registerProductsIPC() {
     additional_barcodes?: string[];
     fitments?: { vehicle_brand_id: number; vehicle_model_id: number }[];
     _user_id?: number;
+    is_active?: boolean;
   }) => {
     try {
       const raw = db();
@@ -840,7 +999,7 @@ export function registerProductsIPC() {
           purchase_price, wholesale_price, retail_price,
           min_stock_level, is_batch_tracked, track_expiry, description,
           is_active, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
       `).run(
         data.barcode || null,
         data.internal_code || null,
@@ -858,6 +1017,7 @@ export function registerProductsIPC() {
         data.is_batch_tracked ? 1 : 0,
         data.track_expiry ? 1 : 0,
         data.description || null,
+        data.is_active !== undefined ? (data.is_active ? 1 : 0) : 1
       );
 
         const productId = result.lastInsertRowid;
@@ -1104,6 +1264,80 @@ export function registerProductsIPC() {
       const raw = db();
       raw.prepare("UPDATE products SET is_active = 0, updated_at = datetime('now') WHERE id = ?").run(id);
       return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ── Bulk Hide Zero Stock Products ──────────────────────────
+  ipcMain.handle('db:products:bulkHideZeroStock', async (_e, filters?: { dateFrom?: string, dateTo?: string }) => {
+    try {
+      const raw = db();
+      const tx = raw.transaction(() => {
+        let query = `
+          SELECT p.id FROM products p
+          LEFT JOIN (
+            SELECT product_id, SUM(quantity) as qty
+            FROM stock_balances GROUP BY product_id
+          ) sb ON p.id = sb.product_id
+          WHERE p.is_active = 1 AND p.is_hidden_from_sales = 0 AND COALESCE(sb.qty, 0) = 0
+        `;
+        const params: any[] = [];
+        if (filters?.dateFrom) {
+          query += ` AND date(p.created_at) >= date(?)`;
+          params.push(filters.dateFrom);
+        }
+        if (filters?.dateTo) {
+          query += ` AND date(p.created_at) <= date(?)`;
+          params.push(filters.dateTo);
+        }
+        
+        const rows = raw.prepare(query).all(...params) as { id: number }[];
+        const updateStmt = raw.prepare("UPDATE products SET is_hidden_from_sales = 1, updated_at = datetime('now') WHERE id = ?");
+        for (const row of rows) {
+          updateStmt.run(row.id);
+        }
+        return rows.length;
+      });
+      const count = tx();
+      return { success: true, count };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ── Bulk Delete Zero Stock Products ────────────────────────
+  ipcMain.handle('db:products:bulkDeleteZeroStock', async (_e, filters?: { dateFrom?: string, dateTo?: string }) => {
+    try {
+      const raw = db();
+      const tx = raw.transaction(() => {
+        let query = `
+          SELECT p.id FROM products p
+          LEFT JOIN (
+            SELECT product_id, SUM(quantity) as qty
+            FROM stock_balances GROUP BY product_id
+          ) sb ON p.id = sb.product_id
+          WHERE p.is_active = 1 AND COALESCE(sb.qty, 0) = 0
+        `;
+        const params: any[] = [];
+        if (filters?.dateFrom) {
+          query += ` AND date(p.created_at) >= date(?)`;
+          params.push(filters.dateFrom);
+        }
+        if (filters?.dateTo) {
+          query += ` AND date(p.created_at) <= date(?)`;
+          params.push(filters.dateTo);
+        }
+        
+        const rows = raw.prepare(query).all(...params) as { id: number }[];
+        const updateStmt = raw.prepare("UPDATE products SET is_active = 0, updated_at = datetime('now') WHERE id = ?");
+        for (const row of rows) {
+          updateStmt.run(row.id);
+        }
+        return rows.length;
+      });
+      const count = tx();
+      return { success: true, count };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

@@ -7,6 +7,15 @@ import { X, Save, ScanBarcode, Car, Sparkles, ChevronDown, Check, Search, Globe,
 import { showSuccess, showError } from '../../shared/utils/notifications';
 import CreatableFitmentTags, { FitmentTag } from '../shared/CreatableFitmentTags';
 
+/** Returns true if the unit name represents a bulk/weight/volume unit (kg, ltr, meter…) */
+function isBulkUnit(unitName?: string): boolean {
+  if (!unitName) return false;
+  const u = unitName.trim().toLowerCase();
+  return u.includes('كيلو') || u.includes('كغ') || u.includes('kg') ||
+         u.includes('لتر') || u.includes('ltr') || u === 'l' ||
+         u.includes('متر') || u === 'm' || u.includes('غرام') || u === 'g';
+}
+
 interface Category { id: number; name: string; }
 interface Brand { id: number; name: string; }
 interface Unit { id: number; name: string; }
@@ -277,8 +286,12 @@ export default function ProductModal({ isOpen, onClose, onSaved, productId }: Pr
 
     setLoading(true);
     try {
+      // Zero out wholesale_price for simple piece products (no sub-unit, non-bulk unit)
+      const selectedUnitName = units.find(u => u.id.toString() === formData.unit_id.toString())?.name;
+      const showBoxPrice = formData.has_sub_unit || isBulkUnit(selectedUnitName);
       const payload = {
         ...formData,
+        wholesale_price: showBoxPrice ? formData.wholesale_price : 0,
         internal_code: formData.barcode || null,
         category_id: formData.category_id || null,
         brand_id: formData.brand_id || null,
@@ -477,15 +490,31 @@ export default function ProductModal({ isOpen, onClose, onSaved, productId }: Pr
                       className="w-full bg-background_primary border border-border_default rounded-lg px-3 py-2 text-text_primary outline-none focus:border-success_green font-numbers text-center"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs text-text_secondary mb-1">سعر الجملة</label>
-                    <input
-                      type="number" min="0" step="0.01"
-                      value={formData.wholesale_price}
-                      onChange={e => setFormData({...formData, wholesale_price: Number(e.target.value)})}
-                      className="w-full bg-background_primary border border-border_default rounded-lg px-3 py-2 text-text_primary outline-none focus:border-primary_blue font-numbers text-center"
-                    />
-                  </div>
+                  {/* سعر الجملة — يظهر فقط للمنتجات ذات العلب أو الوحدات الكبيرة */}
+                  {(() => {
+                    const selectedUnitName = units.find(u => u.id.toString() === formData.unit_id.toString())?.name;
+                    const showBoxPrice = formData.has_sub_unit || isBulkUnit(selectedUnitName);
+                    return (
+                      <div>
+                        <label className="block text-xs text-text_secondary mb-1">
+                          سعر الجملة (علبة)
+                          {!showBoxPrice && <span className="text-[10px] text-text_muted/60 mr-1">(غير منطبق)</span>}
+                        </label>
+                        {showBoxPrice ? (
+                          <input
+                            type="number" min="0" step="0.01"
+                            value={formData.wholesale_price}
+                            onChange={e => setFormData({...formData, wholesale_price: Number(e.target.value)})}
+                            className="w-full bg-background_primary border border-border_default rounded-lg px-3 py-2 text-text_primary outline-none focus:border-primary_blue font-numbers text-center"
+                          />
+                        ) : (
+                          <div className="w-full bg-background_primary/40 border border-border_default/40 rounded-lg px-3 py-2 text-text_muted/50 text-center font-numbers text-sm">
+                            -
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 

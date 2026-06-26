@@ -9,6 +9,12 @@ import { AccountingEngine } from '../services/accounting.service';
 export function registerInventoryIPC() {
   const db = () => DatabaseService.getRawDb();
 
+  function isBoxUnit(unit?: string): boolean {
+    if (!unit) return false;
+    const u = unit.trim().toLowerCase();
+    return !['قطعة', 'قطعه', 'حبة', 'حبه', 'pcs', 'pc'].includes(u);
+  }
+
   // ── Adjust Stock (Initial, Manual, etc.) ───────────────────
   ipcMain.handle('db:inventory:adjustStock', async (_e, data: {
     product_id: number;
@@ -55,7 +61,7 @@ export function registerInventoryIPC() {
           if (!item) {
             throw new Error('بند فاتورة الشراء المحدد غير موجود');
           }
-          isItemUnitBox = item.unit === 'علبة';
+          isItemUnitBox = isBoxUnit(item.unit);
           returnQtyNeeded = isItemUnitBox ? Math.abs(dbInputQty) : Math.abs(data.quantity);
           const currentRem = item.quantity_remaining !== null ? item.quantity_remaining : 0;
           if (currentRem < returnQtyNeeded) {
@@ -227,7 +233,7 @@ export function registerInventoryIPC() {
             ORDER BY pi.date DESC, pi.id DESC LIMIT 1
           `).get(data.product_id);
           if (lastPurchase) {
-            purchasePrice = lastPurchase.unit === 'علبة' ? lastPurchase.unit_price / scaleFactor : lastPurchase.unit_price;
+            purchasePrice = isBoxUnit(lastPurchase.unit) ? lastPurchase.unit_price / scaleFactor : lastPurchase.unit_price;
           }
         }
 

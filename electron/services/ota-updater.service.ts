@@ -190,7 +190,7 @@ export class OtaUpdaterService {
         const tempFilePath = path.join(this.tempDir, filePath);
         if (!fs.existsSync(tempFilePath)) {
           const localPath = path.join(this.updatesDir, filePath);
-          const defaultPath = path.join(__dirname, '../renderer', filePath);
+          const defaultPath = path.join(app.getAppPath(), 'dist/renderer', filePath);
 
           if (fs.existsSync(localPath)) {
             fs.mkdirSync(path.dirname(tempFilePath), { recursive: true });
@@ -246,10 +246,42 @@ export class OtaUpdaterService {
     }
   }
 
+  private static checkPackagedVersion() {
+    try {
+      const packagedManifestPath = path.join(app.getAppPath(), 'dist/renderer/manifest.json');
+      if (!fs.existsSync(packagedManifestPath)) {
+        return;
+      }
+      
+      const packagedManifestContent = fs.readFileSync(packagedManifestPath);
+      const packagedHash = crypto.createHash('md5').update(packagedManifestContent).digest('hex');
+      
+      const hashFilePath = path.join(this.updatesDir, 'packaged_manifest_hash.txt');
+      let savedHash = '';
+      if (fs.existsSync(hashFilePath)) {
+        savedHash = fs.readFileSync(hashFilePath, 'utf8').trim();
+      }
+      
+      if (packagedHash !== savedHash) {
+        console.log('[OTA Updater] Packaged manifest changed. Clearing updates folder.');
+        this.cleanDirectory(this.updatesDir);
+        
+        // Recreate updates dir and save the new hash
+        fs.mkdirSync(this.updatesDir, { recursive: true });
+        fs.writeFileSync(hashFilePath, packagedHash, 'utf8');
+      }
+    } catch (err: any) {
+      console.warn('[OTA Updater] Failed to check packaged version:', err.message);
+    }
+  }
+
   /**
    * Checks if an update directory exists and has a valid manifest
    */
   public static getUpdatesIndexPath(): string | null {
+    // Verify if packaged manifest changed and clear updates if so
+    this.checkPackagedVersion();
+
     const updatesIndex = path.join(this.updatesDir, 'index.html');
     const localManifest = path.join(this.updatesDir, 'manifest.json');
     if (fs.existsSync(updatesIndex) && fs.existsSync(localManifest)) {

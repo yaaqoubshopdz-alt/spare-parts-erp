@@ -1,0 +1,10 @@
+const Database = require('better-sqlite3');
+const path = require('path');
+const dbDir = path.join(process.env.APPDATA || '', 'spare-parts-erp', 'SparePartsERP');
+const dbPath = path.join(dbDir, 'spare_parts.db');
+const db = new Database(dbPath);
+const units = db.prepare('SELECT * FROM units').all();
+console.log('Units in DB:', units);
+const products = db.prepare('SELECT name, unit_id, has_sub_unit, pieces_per_box FROM products LIMIT 10').all();
+console.log('Sample Products:', products);
+db.close();

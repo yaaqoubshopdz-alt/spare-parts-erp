@@ -47,14 +47,40 @@ export default function QtyPriceModal({
 
   if (!isOpen) return null;
 
+  const filterNumberInput = (val: string) => {
+    if (val === '0-') return '-';
+    let filtered = val.replace(/[^0-9.-]/g, '');
+    
+    // Strip leading zeros
+    if (/^0[0-9]/.test(filtered)) {
+      filtered = filtered.slice(1);
+    }
+    if (/^-0[0-9]/.test(filtered)) {
+      filtered = '-' + filtered.slice(2);
+    }
+
+    if (filtered.indexOf('-') > 0) {
+      filtered = filtered.replace(/-/g, '');
+    }
+    const minusCount = (filtered.match(/-/g) || []).length;
+    if (minusCount > 1) {
+      filtered = '-' + filtered.replace(/-/g, '');
+    }
+    const parts = filtered.split('.');
+    if (parts.length > 2) {
+      filtered = parts[0] + '.' + parts.slice(1).join('');
+    }
+    return filtered;
+  };
+
   const handleConfirm = () => {
     const parsedQty = parseFloat(qty);
     const parsedPrice = parseFloat(price);
-    if (isNaN(parsedQty) || parsedQty <= 0) {
+    if (isNaN(parsedQty) || parsedQty === 0) {
       qtyInputRef.current?.focus();
       return;
     }
-    if (isNaN(parsedPrice) || parsedPrice < 0) {
+    if (isNaN(parsedPrice)) {
       priceInputRef.current?.focus();
       return;
     }
@@ -139,11 +165,9 @@ export default function QtyPriceModal({
                 <label className="text-xs text-text_muted font-medium mb-1 block">الكمية المطلوب بيعها</label>
                 <input
                   ref={qtyInputRef}
-                  type="number"
-                  min="0.001"
-                  step="any"
+                  type="text"
                   value={qty}
-                  onChange={(e) => setQty(e.target.value)}
+                  onChange={(e) => setQty(filterNumberInput(e.target.value))}
                   onKeyDown={handleQtyKeyDown}
                   placeholder="0.00"
                   dir="ltr"
@@ -156,11 +180,9 @@ export default function QtyPriceModal({
                 <label className="text-xs text-text_muted font-medium mb-1 block">سعر الوحدة (د.ج)</label>
                 <input
                   ref={priceInputRef}
-                  type="number"
-                  min="0"
-                  step="any"
+                  type="text"
                   value={price}
-                  onChange={(e) => setPrice(e.target.value)}
+                  onChange={(e) => setPrice(filterNumberInput(e.target.value))}
                   onKeyDown={handlePriceKeyDown}
                   placeholder="0.00"
                   dir="ltr"

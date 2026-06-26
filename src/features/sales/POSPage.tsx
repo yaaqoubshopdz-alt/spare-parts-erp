@@ -5,7 +5,7 @@ import { useReactToPrint } from 'react-to-print';
 import {
   Search, Trash2, Printer, Save, CheckCircle, Plus,
   User, Package, X, ArrowUpDown, ShieldAlert, Lock,
-  FolderOpen, Calendar, XCircle, FileText, EyeOff, Eye, Car, Image as ImageIcon
+  FolderOpen, Calendar, XCircle, FileText, EyeOff, Eye, Car, Image as ImageIcon, Bot, Undo
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { roundTo2, calcItemDiscount, calcItemTotal, calcSubtotal, calcGlobalDiscount, calcTax, calcTotal, calcRemaining } from '../../utils/calculations';
@@ -21,7 +21,7 @@ import { toast } from 'sonner';
 import { showNotification, showSuccess, showInfo, showError } from '../../shared/utils/notifications';
 import { showAutoParkToast } from '../../shared/components/ui/AutoParkToast';
 import { AdminPinModal } from '../../shared/components/ui/AdminPinModal';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import GlassDropdown, { GlassDropdownItem } from '../../shared/components/ui/GlassDropdown';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkspaceStore, Workspace } from '../../store/workspaceStore';
@@ -40,6 +40,7 @@ interface InvoiceItem {
   id: string;
   product_id: number;
   product_name_snapshot: string;
+  product_name_fr?: string;
   product_barcode_snapshot: string | null;
   quantity: number;
   unit: string;
@@ -87,6 +88,93 @@ const ALL_SALE_TYPES: { value: SaleType; label: string; priceField: string }[] =
   { value: 'wholesale', label: 'جملة (علبة)', priceField: 'wholesale_price' },
 ];
 
+function isBoxUnit(unit?: string, mainUnitName?: string): boolean {
+  if (!unit) return false;
+  const u = unit.trim().toLowerCase();
+  if (['قطعة', 'قطعه', 'حبة', 'حبه', 'pcs', 'pc'].includes(u)) {
+    return false;
+  }
+  if (u === 'علبة' || u === 'علبه') {
+    return true;
+  }
+  if (mainUnitName) {
+    const main = mainUnitName.trim().toLowerCase();
+    if (u === main) {
+      return true;
+    }
+  }
+  return true;
+}
+
+
+interface NumericInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
+  value: number;
+  onChange: (val: number) => void;
+}
+
+const NumericInput: React.FC<NumericInputProps> = ({ value, onChange, ...props }) => {
+  const [localVal, setLocalVal] = useState(value.toString());
+
+  useEffect(() => {
+    const parsed = parseFloat(localVal);
+    const normalizedParsed = isNaN(parsed) ? 0 : parsed;
+    
+    // Prevent overriding localVal when user is actively typing incomplete zero representations
+    const isIncompleteZero = ['', '-', '.', '-.', '-0', '-0.'].includes(localVal.trim());
+    if (normalizedParsed === 0 && value === 0 && isIncompleteZero) {
+      return;
+    }
+    
+    if (normalizedParsed !== value) {
+      setLocalVal(value.toString());
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let rawStr = e.target.value;
+    
+    // Convert "0-" to "-" for intuitive negative input
+    if (rawStr === '0-') {
+      rawStr = '-';
+    }
+
+    rawStr = rawStr.replace(/[^0-9.-]/g, '');
+
+    // Strip leading zeros
+    if (/^0[0-9]/.test(rawStr)) {
+      rawStr = rawStr.slice(1);
+    }
+    if (/^-0[0-9]/.test(rawStr)) {
+      rawStr = '-' + rawStr.slice(2);
+    }
+
+    if (rawStr.indexOf('-') > 0) {
+      rawStr = rawStr.replace(/-/g, '');
+    }
+    const minusCount = (rawStr.match(/-/g) || []).length;
+    if (minusCount > 1) {
+      rawStr = '-' + rawStr.replace(/-/g, '');
+    }
+    const parts = rawStr.split('.');
+    if (parts.length > 2) {
+      rawStr = parts[0] + '.' + parts.slice(1).join('');
+    }
+    setLocalVal(rawStr);
+    const parsed = parseFloat(rawStr);
+    const normalizedParsed = isNaN(parsed) ? 0 : parsed;
+    onChange(normalizedParsed);
+  };
+
+  return (
+    <input
+      {...props}
+      type="text"
+      value={localVal}
+      onChange={handleChange}
+    />
+  );
+};
+
 const formatStock = (stock: number, hasSubUnit?: boolean, piecesPerBox?: number, unitName?: string) => {
   const qty = (hasSubUnit && piecesPerBox) ? (stock * piecesPerBox) : stock;
   const rounded = parseFloat(Number(qty).toFixed(3));
@@ -104,6 +192,7 @@ export default function SalesInvoicePage() {
   const isSavingRef = useRef(false);
   const isSavedRef = useRef(false);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const getColumnLabel = (id: string, fallback: string) => {
     switch (id) {
@@ -278,6 +367,7 @@ export default function SalesInvoicePage() {
           id: `item-${item.id || Date.now()}-${Math.random()}`,
           product_id: item.product_id,
           product_name_snapshot: item.product_name_snapshot || item.product_name || '',
+          product_name_fr: item.product_name_fr || '',
           product_barcode_snapshot: item.product_barcode_snapshot || item.product_barcode || null,
           quantity: item.quantity,
           unit: item.unit || 'حبة',
@@ -381,6 +471,174 @@ export default function SalesInvoicePage() {
   const [rowContextMenu, setRowContextMenu] = useState<{ x: number, y: number, itemId: string, productId: number } | null>(null);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [photoModalProduct, setPhotoModalProduct] = useState<{ id: number; name: string; barcode?: string } | null>(null);
+
+  // AI Fitment Chat Panel
+  const [fitmentChatProduct, setFitmentChatProduct] = useState<{ id: number; name: string; barcode?: string } | null>(null);
+  const [fitmentChatOpen, setFitmentChatOpen] = useState(false);
+  const [fitmentChatInput, setFitmentChatInput] = useState('');
+  const [fitmentChatHistory, setFitmentChatHistory] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
+  const [fitmentChatLoading, setFitmentChatLoading] = useState(false);
+  const fitmentChatBottomRef = useRef<HTMLDivElement | null>(null);
+
+  // AI Fitment Chat — button ref for Enter key support
+  const fitmentSendBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  // ── Markdown renderer for fitment chat responses ──────────────────────────
+  const renderFitmentMarkdown = (text: string): React.ReactNode => {
+    const lines = text.split('\n');
+    const elements: React.ReactNode[] = [];
+    let inList = false;
+    let listItems: React.ReactNode[] = [];
+    let inNumberedList = false;
+    let numberedItems: React.ReactNode[] = [];
+
+    const flushList = () => {
+      if (inList && listItems.length > 0) {
+        elements.push(
+          <ul key={`ul-${elements.length}`} className="flex flex-col gap-1 pr-1 my-1">
+            {listItems}
+          </ul>
+        );
+        listItems = [];
+        inList = false;
+      }
+      if (inNumberedList && numberedItems.length > 0) {
+        elements.push(
+          <ol key={`ol-${elements.length}`} className="flex flex-col gap-1 pr-1 my-1">
+            {numberedItems}
+          </ol>
+        );
+        numberedItems = [];
+        inNumberedList = false;
+      }
+    };
+
+    const renderInline = (str: string): React.ReactNode[] => {
+      const parts: React.ReactNode[] = [];
+      let remaining = str;
+      let keyIdx = 0;
+      // Process **bold**, *italic*, `code`
+      while (remaining.length > 0) {
+        const boldMatch = remaining.match(/^(.*?)\*\*(.+?)\*\*/s);
+        const italicMatch = remaining.match(/^(.*?)\*(.+?)\*/s);
+        const codeMatch = remaining.match(/^(.*?)`(.+?)`/s);
+
+        const firstBold = boldMatch ? (boldMatch[1]?.length ?? 0) : Infinity;
+        const firstItalic = italicMatch ? (italicMatch[1]?.length ?? 0) : Infinity;
+        const firstCode = codeMatch ? (codeMatch[1]?.length ?? 0) : Infinity;
+
+        const minIdx = Math.min(firstBold, firstItalic, firstCode);
+
+        if (minIdx === Infinity) {
+          parts.push(<span key={keyIdx++}>{remaining}</span>);
+          break;
+        }
+
+        if (minIdx === firstBold && boldMatch) {
+          if (boldMatch[1]) parts.push(<span key={keyIdx++}>{boldMatch[1]}</span>);
+          parts.push(<strong key={keyIdx++} className="font-black text-emerald-300">{boldMatch[2]}</strong>);
+          remaining = remaining.slice(boldMatch[0].length);
+        } else if (minIdx === firstItalic && italicMatch) {
+          if (italicMatch[1]) parts.push(<span key={keyIdx++}>{italicMatch[1]}</span>);
+          parts.push(<em key={keyIdx++} className="italic text-amber-300/90">{italicMatch[2]}</em>);
+          remaining = remaining.slice(italicMatch[0].length);
+        } else if (minIdx === firstCode && codeMatch) {
+          if (codeMatch[1]) parts.push(<span key={keyIdx++}>{codeMatch[1]}</span>);
+          parts.push(<code key={keyIdx++} className="bg-white/10 text-cyan-300 px-1 py-0.5 rounded text-[10px] font-mono">{codeMatch[2]}</code>);
+          remaining = remaining.slice(codeMatch[0].length);
+        } else {
+          parts.push(<span key={keyIdx++}>{remaining}</span>);
+          break;
+        }
+      }
+      return parts;
+    };
+
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flushList();
+        elements.push(<div key={`sp-${idx}`} className="h-1" />);
+        return;
+      }
+
+      // H1 ###
+      if (/^###\s+(.+)/.test(trimmed)) {
+        flushList();
+        const content = trimmed.replace(/^###\s+/, '');
+        elements.push(
+          <div key={idx} className="font-black text-[11px] text-emerald-400 uppercase tracking-wide mt-2 mb-1 border-b border-emerald-500/20 pb-1 flex items-center gap-1">
+            <span>✦</span> {renderInline(content)}
+          </div>
+        );
+        return;
+      }
+      // H2 ##
+      if (/^##\s+(.+)/.test(trimmed)) {
+        flushList();
+        const content = trimmed.replace(/^##\s+/, '');
+        elements.push(
+          <div key={idx} className="font-bold text-[11px] text-primary_blue mt-1.5 mb-0.5 flex items-center gap-1">
+            <span className="text-primary_blue">◆</span> {renderInline(content)}
+          </div>
+        );
+        return;
+      }
+      // H1 #
+      if (/^#\s+(.+)/.test(trimmed)) {
+        flushList();
+        const content = trimmed.replace(/^#\s+/, '');
+        elements.push(
+          <div key={idx} className="font-black text-[12px] text-text_primary mt-2 mb-1">
+            {renderInline(content)}
+          </div>
+        );
+        return;
+      }
+      // Bullet list: - or •
+      if (/^[-•]\s+(.+)/.test(trimmed)) {
+        flushList(); // flush numbered if any
+        inList = true;
+        const content = trimmed.replace(/^[-•]\s+/, '');
+        listItems.push(
+          <li key={`li-${idx}`} className="flex items-start gap-1.5 text-[11px] text-text_primary">
+            <span className="text-emerald-400 mt-0.5 shrink-0">▸</span>
+            <span>{renderInline(content)}</span>
+          </li>
+        );
+        return;
+      }
+      // Numbered list: 1. 2. etc
+      const numMatch = trimmed.match(/^(\d+)\.\s+(.+)/);
+      if (numMatch) {
+        if (inList) flushList();
+        inNumberedList = true;
+        numberedItems.push(
+          <li key={`nl-${idx}`} className="flex items-start gap-1.5 text-[11px] text-text_primary">
+            <span className="text-amber-400 font-black shrink-0 min-w-[14px]">{numMatch[1]}.</span>
+            <span>{renderInline(numMatch[2])}</span>
+          </li>
+        );
+        return;
+      }
+      // Separator ---
+      if (/^-{3,}$/.test(trimmed)) {
+        flushList();
+        elements.push(<div key={idx} className="border-t border-border_default my-1.5" />);
+        return;
+      }
+      // Normal paragraph
+      flushList();
+      elements.push(
+        <p key={idx} className="text-[11px] leading-relaxed text-text_primary">
+          {renderInline(trimmed)}
+        </p>
+      );
+    });
+
+    flushList();
+    return <div className="flex flex-col gap-0.5">{elements}</div>;
+  };
 
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
 
@@ -597,13 +855,16 @@ export default function SalesInvoicePage() {
           : i
       ));
     } else {
+      const hasSub = product.has_sub_unit === 1 || product.has_sub_unit === true || product.has_sub_unit === 'true' || product.has_sub_unit === '1';
+      const defaultUnit = hasSub ? 'قطعة' : (product.unit_name || 'حبة');
       const newItem: InvoiceItem = {
         id: `item-${Date.now()}`,
         product_id: product.id,
         product_name_snapshot: product.name,
+        product_name_fr: product.name_fr || '',
         product_barcode_snapshot: product.barcode,
         quantity: qty,
-        unit: product.unit_name || 'حبة',
+        unit: defaultUnit,
         unit_price: price,
         purchase_price_snapshot: product.purchase_price || 0,
         item_discount_type: 'percent',
@@ -614,7 +875,7 @@ export default function SalesInvoicePage() {
         sort_order: items.length,
         retail_price_snapshot: product.retail_price || 0,
         wholesale_price_snapshot: product.wholesale_price || 0,
-        has_sub_unit: product.has_sub_unit ? true : false,
+        has_sub_unit: hasSub,
         pieces_per_box: product.pieces_per_box || 1,
         unit_name: product.unit_name || 'حبة',
       };
@@ -647,14 +908,17 @@ export default function SalesInvoicePage() {
           : i
       ));
     } else {
+      const hasSub = product.has_sub_unit === 1 || product.has_sub_unit === true || product.has_sub_unit === 'true' || product.has_sub_unit === '1';
+      const defaultUnit = hasSub ? 'قطعة' : (product.unit_name || 'حبة');
       const defaultPrice = product.retail_price || 0;
       const newItem: InvoiceItem = {
         id: `item-${Date.now()}`,
         product_id: product.id,
         product_name_snapshot: product.name,
+        product_name_fr: product.name_fr || '',
         product_barcode_snapshot: product.barcode,
         quantity: 1,
-        unit: product.unit_name || 'حبة',
+        unit: defaultUnit,
         unit_price: defaultPrice,
         purchase_price_snapshot: product.purchase_price || 0,
         item_discount_type: 'percent',
@@ -665,7 +929,7 @@ export default function SalesInvoicePage() {
         sort_order: items.length,
         retail_price_snapshot: product.retail_price || 0,
         wholesale_price_snapshot: product.wholesale_price || 0,
-        has_sub_unit: product.has_sub_unit ? true : false,
+        has_sub_unit: hasSub,
         pieces_per_box: product.pieces_per_box || 1,
         unit_name: product.unit_name || 'حبة',
       };
@@ -689,7 +953,7 @@ export default function SalesInvoicePage() {
   const updateItemUnit = (id: string, newUnit: string) => {
     setItems(prev => prev.map(item => {
       if (item.id !== id) return item;
-      const price = newUnit === 'علبة' ? item.wholesale_price_snapshot || item.unit_price : item.retail_price_snapshot || item.unit_price;
+      const price = isBoxUnit(newUnit, item.unit_name) ? item.wholesale_price_snapshot || item.unit_price : item.retail_price_snapshot || item.unit_price;
       const updated = { ...item, unit: newUnit, unit_price: price };
       updated.item_discount_amount = calcItemDiscount(updated.unit_price, updated.quantity, updated.item_discount_type, updated.item_discount_value);
       updated.total = calcItemTotal(updated.unit_price, updated.quantity, updated.item_discount_amount);
@@ -827,7 +1091,7 @@ export default function SalesInvoicePage() {
               quantity: item.quantity,
               unit: item.unit,
               unit_price: item.unit_price,
-              cost_price_snapshot: (item.has_sub_unit && item.unit !== 'علبة')
+              cost_price_snapshot: (item.has_sub_unit && !isBoxUnit(item.unit, item.unit_name))
                 ? (item.purchase_price_snapshot || 0) / (item.pieces_per_box || 1)
                 : (item.purchase_price_snapshot || 0),
               item_discount_type: item.item_discount_type,
@@ -915,7 +1179,7 @@ export default function SalesInvoicePage() {
           quantity: item.quantity,
           unit: item.unit,
           unit_price: item.unit_price,
-          cost_price_snapshot: (item.has_sub_unit && item.unit !== 'علبة')
+          cost_price_snapshot: (item.has_sub_unit && !isBoxUnit(item.unit, item.unit_name))
             ? (item.purchase_price_snapshot || 0) / (item.pieces_per_box || 1)
             : (item.purchase_price_snapshot || 0),
           item_discount_type: item.item_discount_type,
@@ -1177,6 +1441,7 @@ export default function SalesInvoicePage() {
       {/* Print template container removed in favor of PrintPreviewModal */}
 
       <ProInvoiceLayout
+        hideWorkspaces={!!currentInvoiceId}
         title={`${t('sidebar.sales')}${isCancelled ? ' - ' + t('invoice.status_cancelled') : ''}`}
         invoiceNumber={invoiceNumber}
         isSaving={saving}
@@ -1258,9 +1523,9 @@ export default function SalesInvoicePage() {
 
                       {/* Column 2: Name */}
                       <div className="flex-1 px-4 border-l border-white/[0.08]" dir="auto">
-                        <span className="text-[14px] text-text_primary font-black transition-colors">{p.name}</span>
-                        {p.name_fr && (
-                          <span className="text-xs text-text_muted block font-sans" dir="ltr">{p.name_fr}</span>
+                        <span className="text-[14px] text-text_primary font-black transition-colors">{p.name_fr || p.name}</span>
+                        {p.name_fr && p.name_fr !== p.name && (
+                          <span className="text-[10px] text-text_muted/60 block leading-tight">{p.name}</span>
                         )}
                       </div>
 
@@ -1444,7 +1709,7 @@ export default function SalesInvoicePage() {
             <div className="flex flex-col">
               <label className="text-[10px] text-text_primary uppercase font-bold px-1">{t('invoice.global_discount')}</label>
               <div className="flex items-center">
-                <input type="number" min={0} value={globalDiscountValue} onChange={e => setGlobalDiscountValue(parseFloat(e.target.value) || 0)}
+                <NumericInput value={globalDiscountValue} onChange={val => setGlobalDiscountValue(val)}
                   className="w-20 bg-transparent px-1 text-base font-bold font-numbers text-text_primary focus:outline-none" />
                 <select value={globalDiscountType} onChange={e => setGlobalDiscountType(e.target.value as DiscountType)}
                   className="bg-transparent text-sm font-bold focus:outline-none appearance-none text-primary_blue px-1 cursor-pointer">
@@ -1477,26 +1742,48 @@ export default function SalesInvoicePage() {
                   return <div key={col.id} style={cellStyle} className={`${commonClasses} text-[11px] font-numbers text-text_primary`}>{idx + 1}</div>;
                 case 'barcode':
                   return <div key={col.id} style={cellStyle} className={`${commonClasses} text-[12px] font-medium font-numbers text-text_primary`}>{item.product_barcode_snapshot || '-'}</div>;
-                case 'name':
+                case 'name': {
+                  const mainName = (item as InvoiceItem).product_name_fr || item.product_name_snapshot;
+                  const subName = ((item as InvoiceItem).product_name_fr && (item as InvoiceItem).product_name_fr !== item.product_name_snapshot) ? item.product_name_snapshot : null;
                   return (
-                    <div key={col.id} style={cellStyle} dir="auto" className={`${commonClasses} text-[14px] font-bold text-text_primary overflow-hidden text-ellipsis whitespace-nowrap group-hover:text-primary_blue transition-colors flex items-center gap-1.5`}>
-                      <span>{item.product_name_snapshot}</span>
-                      {item.product_is_active === 0 && (
-                        <span className="shrink-0 text-[10px] bg-danger_red/20 text-danger_red font-black px-1.5 py-0.5 rounded border border-danger_red/30">موقوف</span>
+                    <div key={col.id} style={cellStyle} dir="auto" className={`${commonClasses} flex-col items-start justify-center py-0.5 overflow-hidden text-ellipsis group-hover:text-primary_blue transition-colors relative w-full`}>
+                      <div className="flex items-center justify-between w-full gap-1.5 leading-none">
+                        <div className="flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap">
+                          <span className="text-[13px] font-bold text-text_primary">{mainName}</span>
+                          {item.product_is_active === 0 && (
+                            <span className="shrink-0 text-[10px] bg-danger_red/20 text-danger_red font-black px-1.5 py-0.5 rounded border border-danger_red/30">موقوف</span>
+                          )}
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/consultant?productId=${item.product_id}`);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-violet-500/20 text-violet-500 rounded-lg transition-all active:scale-95 shrink-0 ml-1"
+                          title="استشارة الذكاء الاصطناعي حول هذا المنتج"
+                        >
+                          <Bot size={13} />
+                        </button>
+                      </div>
+                      {subName && (
+                        <span className="text-[10px] text-text_muted/60 font-medium truncate max-w-full leading-tight">
+                          {subName}
+                        </span>
                       )}
                     </div>
                   );
+                }
                 case 'unit':
                   return (
                     <div key={col.id} style={cellStyle} className={`${commonClasses} px-1`}>
                       {item.has_sub_unit ? (
                         <select
-                          value={item.unit}
+                          value={isBoxUnit(item.unit, item.unit_name) ? (item.unit_name && !['قطعة', 'حبة', 'قطعه', 'حبه'].includes(item.unit_name) ? item.unit_name : 'علبة') : 'قطعة'}
                           onChange={e => updateItemUnit(item.id, e.target.value)}
                           className="bg-background_card border border-border_default rounded px-1.5 py-0.5 text-[12px] font-bold text-center focus:outline-none appearance-none text-text_primary cursor-pointer hover:bg-background_card_hover transition-colors"
                         >
-                          <option value={item.unit_name || 'حبة'}>{item.unit_name || 'حبة'}</option>
-                          <option value="علبة">علبة</option>
+                          <option value={item.unit_name && !['قطعة', 'حبة', 'قطعه', 'حبه'].includes(item.unit_name) ? item.unit_name : 'علبة'}>{item.unit_name && !['قطعة', 'حبة', 'قطعه', 'حبه'].includes(item.unit_name) ? item.unit_name : 'علبة'}</option>
+                          <option value="قطعة">قطعة</option>
                         </select>
                       ) : (
                         <span className="text-[12px] font-bold text-text_secondary">
@@ -1508,7 +1795,7 @@ export default function SalesInvoicePage() {
                 case 'price':
                   return (
                     <div key={col.id} style={cellStyle} className={commonClasses}>
-                      <input type="number" min={0} value={item.unit_price} onChange={e => updateItem(item.id, 'unit_price', parseFloat(e.target.value) || 0)}
+                      <NumericInput value={item.unit_price} onChange={val => updateItem(item.id, 'unit_price', val)}
                         readOnly={!isHQ}
                         className={`w-full bg-transparent border-b border-primary_blue/40 px-2 py-0.5 text-[15px] text-center font-bold font-numbers text-text_primary transition-all ${isHQ ? 'focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none' : 'opacity-80 cursor-not-allowed select-none border-transparent shadow-none'}`} />
                     </div>
@@ -1516,7 +1803,7 @@ export default function SalesInvoicePage() {
                 case 'discount':
                   return (
                     <div key={col.id} style={cellStyle} className={`${commonClasses} px-1 gap-1`}>
-                      <input type="number" min={0} step={1} value={item.item_discount_value} onChange={e => updateItem(item.id, 'item_discount_value', parseFloat(e.target.value) || 0)}
+                      <NumericInput value={item.item_discount_value} onChange={val => updateItem(item.id, 'item_discount_value', val)}
                         readOnly={!isHQ}
                         className={`w-12 bg-transparent border-b border-primary_blue/40 px-1 py-0.5 text-[15px] text-center font-bold font-numbers text-amber-500 transition-all ${isHQ ? 'focus:border-primary_blue focus:border-b-2 focus:bg-primary_blue/5 focus:outline-none' : 'opacity-80 cursor-not-allowed border-transparent shadow-none'}`} />
                       <select value={item.item_discount_type} onChange={e => updateItem(item.id, 'item_discount_type', e.target.value as 'percent' | 'amount')}
@@ -1528,7 +1815,7 @@ export default function SalesInvoicePage() {
                     </div>
                   );
                 case 'stock': {
-                  const qtyInBoxes = (item.has_sub_unit && item.unit !== 'علبة') ? (item.quantity / (item.pieces_per_box || 1)) : item.quantity;
+                  const qtyInBoxes = (item.has_sub_unit && !isBoxUnit(item.unit, item.unit_name)) ? (item.quantity / (item.pieces_per_box || 1)) : item.quantity;
                   return (
                     <div key={col.id} style={cellStyle} className={commonClasses}>
                       <span className={`text-[11px] font-bold font-numbers ${item.stock_available <= qtyInBoxes ? 'text-danger_red/70' : 'text-text_primary'}`}>
@@ -1540,7 +1827,7 @@ export default function SalesInvoicePage() {
                 case 'quantity':
                   return (
                     <div key={col.id} style={cellStyle} className={commonClasses}>
-                      <input type="number" step="any" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                      <NumericInput value={item.quantity} onChange={val => updateItem(item.id, 'quantity', val)}
                         id={`pos-qty-input-${idx}`}
                         onKeyDown={(e) => {
                           if (e.key === 'ArrowDown' || e.key === 'Enter') {
@@ -1784,6 +2071,34 @@ export default function SalesInvoicePage() {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="px-3 py-1.5 text-[10px] font-bold text-text_muted border-b border-border_default">{t('invoice.row_options')}</div>
+          
+          {/* 1. Convert to Piece */}
+          <button
+            onClick={() => {
+              updateItemUnit(rowContextMenu.itemId, 'قطعة');
+              setRowContextMenu(null);
+            }}
+            className="w-full text-right px-3 py-2 text-sm text-text_primary hover:bg-text_primary/10 rounded-lg transition-colors flex items-center justify-between"
+          >
+            <span>{t('invoice.convert_to_piece')}</span>
+            <span className="text-xs text-text_muted font-numbers font-medium">قطعة</span>
+          </button>
+
+          {/* 2. Convert to Box */}
+          <button
+            onClick={() => {
+              updateItemUnit(rowContextMenu.itemId, 'علبة');
+              setRowContextMenu(null);
+            }}
+            className="w-full text-right px-3 py-2 text-sm text-text_primary hover:bg-text_primary/10 rounded-lg transition-colors flex items-center justify-between"
+          >
+            <span>{t('invoice.convert_to_box')}</span>
+            <span className="text-xs text-text_muted font-numbers font-medium">علبة</span>
+          </button>
+
+          <div className="border-t border-border_default my-1" />
+
+          {/* 3. View Product Images */}
           <button
             onClick={() => {
               const activeItem = items.find(i => i.id === rowContextMenu.itemId);
@@ -1800,28 +2115,54 @@ export default function SalesInvoicePage() {
             <span>عرض صور المنتج</span>
             <ImageIcon size={14} className="text-text_muted" />
           </button>
+
           <div className="border-t border-border_default my-1" />
+
+          {/* 4. Fitments / Compatibilities */}
+          <div className="border-b border-border_default pb-1">
+            <div className="px-3 py-1.5 text-[10px] font-bold text-primary_blue uppercase flex items-center gap-1">
+              <Car size={12} /> {t('invoice.compatibilities')}
+            </div>
+            <div className="px-2 pb-1 max-w-[200px]">
+              <FitmentsBadges productId={rowContextMenu.productId} mode="view" compact />
+            </div>
+            
+            {/* 5. Talk with AI about Fitments */}
+            <button
+              onClick={() => {
+                const activeItem = items.find(i => i.id === rowContextMenu.itemId);
+                setFitmentChatProduct({
+                  id: rowContextMenu.productId,
+                  name: activeItem?.product_name_snapshot || 'منتج',
+                  barcode: activeItem?.product_barcode_snapshot || undefined,
+                });
+                setFitmentChatHistory([]);
+                setFitmentChatInput('');
+                setFitmentChatOpen(true);
+                setRowContextMenu(null);
+              }}
+              className="w-full text-right px-3 py-2 text-xs text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors flex items-center gap-1.5 mt-0.5"
+            >
+              <span className="text-[13px]">💬</span>
+              تحدث مع AI عن التوافقات
+            </button>
+          </div>
+
+          {/* 6. Consult the Smart AI Assistant */}
           <button
             onClick={() => {
-              updateItemUnit(rowContextMenu.itemId, 'كيس');
+              navigate(`/consultant?productId=${rowContextMenu.productId}`);
               setRowContextMenu(null);
             }}
-            className="w-full text-right px-3 py-2 text-sm text-text_primary hover:bg-text_primary/10 rounded-lg transition-colors flex items-center justify-between"
+            className="w-full text-right px-3 py-2 text-sm text-violet-500 hover:bg-violet-500/10 rounded-lg transition-colors flex items-center justify-between font-bold"
           >
-            <span>{t('invoice.convert_to_bag')}</span>
-            <span className="text-xs text-text_muted font-numbers font-medium">كيس</span>
+            <span>استشارة المستشار الذكي</span>
+            <Bot size={14} className="text-violet-500" />
           </button>
-          <button
-            onClick={() => {
-              updateItemUnit(rowContextMenu.itemId, 'علبة');
-              setRowContextMenu(null);
-            }}
-            className="w-full text-right px-3 py-2 text-sm text-text_primary hover:bg-text_primary/10 rounded-lg transition-colors flex items-center justify-between"
-          >
-            <span>{t('invoice.convert_to_box')}</span>
-            <span className="text-xs text-text_muted font-numbers font-medium">علبة</span>
-          </button>
+
           <div className="border-t border-border_default my-1" />
+
+          {/* 7. Delete Product */}
           <button
             onClick={() => {
               removeItem(rowContextMenu.itemId);
@@ -1832,17 +2173,160 @@ export default function SalesInvoicePage() {
             <span>{t('invoice.delete_product')}</span>
             <Trash2 size={14} className="text-danger_red" />
           </button>
+        </div>
+      )}
 
-          <div className="border-t border-border_default mt-1 pt-1">
-            <div className="px-3 py-1.5 text-[10px] font-bold text-primary_blue uppercase flex items-center gap-1">
-              <Car size={12} /> {t('invoice.compatibilities')}
+      {/* ── AI Fitment Chat Panel ────────────────────────────── */}
+      {fitmentChatOpen && fitmentChatProduct && (
+        <div
+          className="fixed inset-0 z-[1000] flex items-end justify-end pointer-events-none"
+          onClick={() => setFitmentChatOpen(false)}
+        >
+          <div
+            className="pointer-events-auto w-[400px] h-[520px] mb-6 ml-6 mr-6 bg-background_secondary border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 fade-in duration-200"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border_default bg-gradient-to-r from-emerald-500/10 to-transparent shrink-0">
+              <div className="text-right">
+                <div className="text-xs font-black text-text_primary">🤖 مساعد التوافقات</div>
+                <div className="text-[10px] text-text_muted truncate max-w-[280px]">{fitmentChatProduct.name}</div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {fitmentChatHistory.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setFitmentChatHistory(h => {
+                        const newH = [...h];
+                        if (newH.length > 0) {
+                          const last = newH[newH.length - 1];
+                          if (last.role === 'assistant') {
+                            newH.pop();
+                            if (newH.length > 0 && newH[newH.length - 1].role === 'user') {
+                              newH.pop();
+                            }
+                          } else {
+                            newH.pop();
+                          }
+                        }
+                        return newH;
+                      });
+                      toast.success('تم التراجع عن آخر رسالة');
+                    }}
+                    disabled={fitmentChatLoading}
+                    className="p-1.5 hover:bg-text_primary/10 rounded-lg transition-colors text-text_muted hover:text-emerald-500 cursor-pointer disabled:opacity-40"
+                    title="تراجع عن آخر رسالة"
+                  >
+                    <Undo size={14} />
+                  </button>
+                )}
+                <button
+                  onClick={() => setFitmentChatOpen(false)}
+                  className="p-1.5 hover:bg-text_primary/10 rounded-lg transition-colors text-text_muted hover:text-text_primary cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
-            <div className="px-2 pb-1 max-w-[200px]">
-              <FitmentsBadges productId={rowContextMenu.productId} mode="view" compact />
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 custom-scrollbar text-right">
+              {fitmentChatHistory.length === 0 && (
+                <div className="flex-1 flex flex-col items-center justify-center gap-2 text-text_muted">
+                  <span className="text-4xl">🚗</span>
+                  <p className="text-xs text-center">اسألني عن توافق هذا المنتج مع سيارتك!</p>
+                  <div className="flex flex-wrap gap-1 justify-center mt-1">
+                    {['ما المركبات التي يناسبها؟', 'هل يناسب Toyota Corolla 2019؟', 'ما المقاسات المتاحة؟'].map(q => (
+                      <button key={q} onClick={() => setFitmentChatInput(q)}
+                        className="text-[10px] px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors cursor-pointer">
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {fitmentChatHistory.map((msg, i) => (
+                <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                  {/* Avatar */}
+                  <div className={`w-6 h-6 rounded-full shrink-0 flex items-center justify-center text-[10px] mt-1 ${
+                    msg.role === 'user'
+                      ? 'bg-emerald-500/30 text-emerald-300'
+                      : 'bg-primary_blue/20 text-primary_blue'
+                  }`}>
+                    {msg.role === 'user' ? '👤' : '🤖'}
+                  </div>
+                  {/* Bubble */}
+                  <div className={`max-w-[85%] px-3 py-2 rounded-2xl leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-emerald-500/20 text-emerald-50 rounded-tr-sm text-[11px]'
+                      : 'bg-background_secondary border border-border_default rounded-tl-sm'
+                  }`}>
+                    {msg.role === 'user'
+                      ? <span className="text-[11px]">{msg.content}</span>
+                      : renderFitmentMarkdown(msg.content)
+                    }
+                  </div>
+                </div>
+              ))}
+
+              {fitmentChatLoading && (
+                <div className="self-start px-3 py-2 rounded-xl bg-background_card border border-border_default text-xs text-text_muted flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="inline-block w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="inline-block w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+              )}
+              <div ref={fitmentChatBottomRef} />
+            </div>
+
+            {/* Input */}
+            <div className="p-3 border-t border-border_default flex gap-2 shrink-0">
+              <button
+                ref={fitmentSendBtnRef}
+                onClick={async () => {
+                  const msg = fitmentChatInput.trim();
+                  if (!msg || fitmentChatLoading) return;
+                  const newHistory = [...fitmentChatHistory, { role: 'user' as const, content: msg }];
+                  setFitmentChatHistory(newHistory);
+                  setFitmentChatInput('');
+                  setFitmentChatLoading(true);
+                  setTimeout(() => fitmentChatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+                  try {
+                    const res = await window.electronAPI.invoke('ai:fitmentChat', {
+                      product_id: fitmentChatProduct.id,
+                      product_name: fitmentChatProduct.name,
+                      product_barcode: fitmentChatProduct.barcode,
+                      message: msg,
+                      history: fitmentChatHistory.map(m => ({ role: m.role, content: m.content })),
+                    });
+                    if (res.success) {
+                      setFitmentChatHistory(h => [...h, { role: 'assistant', content: res.reply }]);
+                    } else {
+                      setFitmentChatHistory(h => [...h, { role: 'assistant', content: `❌ ${res.error || 'فشل في الحصول على رد'}` }]);
+                    }
+                  } finally {
+                    setFitmentChatLoading(false);
+                    setTimeout(() => fitmentChatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+                  }
+                }}
+                disabled={!fitmentChatInput.trim() || fitmentChatLoading}
+                className="px-3 py-2 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:bg-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0 cursor-pointer"
+              >
+                إرسال
+              </button>
+              <input
+                value={fitmentChatInput}
+                onChange={e => setFitmentChatInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); fitmentSendBtnRef.current?.click(); } }}
+                placeholder="اسأل عن التوافق..."
+                dir="rtl"
+                className="flex-1 bg-background_card border border-border_default rounded-xl px-3 py-2 text-xs text-text_primary outline-none focus:border-emerald-400 transition-colors"
+              />
             </div>
           </div>
         </div>
       )}
+
 
       <ProductPhotoViewerModal
         isOpen={showPhotoModal}

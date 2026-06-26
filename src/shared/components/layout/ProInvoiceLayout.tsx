@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Save, Printer, Plus, Trash2, FolderOpen, Search, AlertCircle, CheckCircle2, Banknote, Calendar, Hash, User, XCircle, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ToolbarButton from '../ui/ToolbarButton';
@@ -51,7 +51,76 @@ interface ProInvoiceLayoutProps {
   onNotesChange?: (val: string) => void;
   selectedCategoryId?: number | null;
   onCategoryChange?: (id: number | null) => void;
+  hideWorkspaces?: boolean;
 }
+
+interface NumericInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
+  value: number;
+  onChange: (val: number) => void;
+}
+
+const NumericInput: React.FC<NumericInputProps> = ({ value, onChange, ...props }) => {
+  const [localVal, setLocalVal] = useState(value.toString());
+
+  useEffect(() => {
+    const parsed = parseFloat(localVal);
+    const normalizedParsed = isNaN(parsed) ? 0 : parsed;
+    
+    // Prevent overriding localVal when user is actively typing incomplete zero representations
+    const isIncompleteZero = ['', '-', '.', '-.', '-0', '-0.'].includes(localVal.trim());
+    if (normalizedParsed === 0 && value === 0 && isIncompleteZero) {
+      return;
+    }
+    
+    if (normalizedParsed !== value) {
+      setLocalVal(value.toString());
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let rawStr = e.target.value;
+    
+    // Convert "0-" to "-" for intuitive negative input
+    if (rawStr === '0-') {
+      rawStr = '-';
+    }
+
+    rawStr = rawStr.replace(/[^0-9.-]/g, '');
+
+    // Strip leading zeros
+    if (/^0[0-9]/.test(rawStr)) {
+      rawStr = rawStr.slice(1);
+    }
+    if (/^-0[0-9]/.test(rawStr)) {
+      rawStr = '-' + rawStr.slice(2);
+    }
+
+    if (rawStr.indexOf('-') > 0) {
+      rawStr = rawStr.replace(/-/g, '');
+    }
+    const minusCount = (rawStr.match(/-/g) || []).length;
+    if (minusCount > 1) {
+      rawStr = '-' + rawStr.replace(/-/g, '');
+    }
+    const parts = rawStr.split('.');
+    if (parts.length > 2) {
+      rawStr = parts[0] + '.' + parts.slice(1).join('');
+    }
+    setLocalVal(rawStr);
+    const parsed = parseFloat(rawStr);
+    const normalizedParsed = isNaN(parsed) ? 0 : parsed;
+    onChange(normalizedParsed);
+  };
+
+  return (
+    <input
+      {...props}
+      type="text"
+      value={localVal}
+      onChange={handleChange}
+    />
+  );
+};
 
 export default function ProInvoiceLayout({
   title, invoiceNumber, date, onDateChange,
@@ -74,7 +143,8 @@ export default function ProInvoiceLayout({
   notes = '',
   onNotesChange,
   selectedCategoryId = null,
-  onCategoryChange
+  onCategoryChange,
+  hideWorkspaces = false
 }: ProInvoiceLayoutProps) {
   const { t } = useTranslation();
   const [isSearchExpanded, setIsSearchExpanded] = React.useState(false);
@@ -200,7 +270,7 @@ export default function ProInvoiceLayout({
               </div>
 
               {/* Workspace Switcher Button */}
-              {workspaceCount > 1 && (
+              {!hideWorkspaces && workspaceCount > 1 && (
                 <button
                   onClick={toggleSwitcher}
                   className="flex items-center gap-2.5 px-4 h-11 rounded-lg border border-primary_blue/30 bg-primary_blue/10 hover:bg-primary_blue/20 text-primary_blue hover:text-primary_blue_hover font-bold text-sm shadow-[0_0_15px_rgba(37,99,235,0.08)] transition-all active:scale-95 group shrink-0"
@@ -541,11 +611,9 @@ export default function ProInvoiceLayout({
                     </button>
                   </div>
                   <div className="flex items-baseline">
-                    <input 
-                      type="number" 
+                    <NumericInput 
                       value={paidAmount} 
-                      onChange={e => {
-                        const val = parseFloat(e.target.value) || 0;
+                      onChange={val => {
                         onPaidAmountChange?.(val);
                       }}
                       className="bg-transparent text-xl font-bold font-numbers text-success_green tracking-tight w-full focus:outline-none"
